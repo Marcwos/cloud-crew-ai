@@ -98,59 +98,6 @@ def _make_triage_node(deps: CrewSessionDeps):
     return leslie_triage
 
 
-def _make_specialist_node(agent_name: str, deps: CrewSessionDeps):
-    """Build a node function for a single specialist agent."""
-    _agent_classes = {
-        "alan": AlanAgent,
-        "edgar": EdgarAgent,
-        "hedy": HedyAgent,
-        "grace": GraceAgent,
-        "vint": VintAgent,
-    }
-
-    async def specialist_node(state: GraphState) -> GraphState:
-        session_id = state["session_id"]
-        challenge = state["challenge"]
-        events: list[AgentEvent] = list(state.get("events", []))
-        proposals: list[Proposal] = list(state.get("proposals", []))
-
-        event = await _emit(deps, session_id, agent_name, "moving", "Moving to workstation")
-        events.append(event)
-
-        event = await _emit(deps, session_id, agent_name, "analyzing", f"Analyzing {agent_name} domain")
-        events.append(event)
-
-        # Build a minimal session for the agent to propose against
-        temp_session = CrewSession(
-            session_id=session_id,
-            challenge=challenge,
-            constraints=state.get("constraints", []),
-            tasks=state.get("tasks", {}),
-            proposals=[],
-            reviews=[],
-            final_plan=None,
-            events=[],
-        )
-
-        agent_cls = _agent_classes[agent_name]
-        agent = agent_cls(llm=deps.llm, knowledge=deps.knowledge)
-        proposal = await agent.propose(temp_session)
-
-        event = await _emit(
-            deps, session_id, agent_name, "proposing",
-            f"Proposal ready: {', '.join(proposal.services[:2])}..."
-        )
-        events.append(event)
-
-        return {
-            **state,
-            "proposals": proposals + [proposal],
-            "events": events,
-        }
-
-    return specialist_node
-
-
 def _make_review_node(deps: CrewSessionDeps):
     async def review_round(state: GraphState) -> GraphState:
         session_id = state["session_id"]
