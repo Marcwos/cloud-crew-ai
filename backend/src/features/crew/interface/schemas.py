@@ -1,13 +1,17 @@
 """Pydantic schemas for HTTP request/response DTOs."""
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+# Bound the challenge length to protect downstream LLM prompts and the queue
+# from oversized input. 4000 chars is generous for an architecture brief.
+CHALLENGE_MAX_LENGTH = 4000
 
 
 class StartSessionRequest(BaseModel):
     """Body for POST /api/sessions."""
 
-    challenge: str
+    challenge: str = Field(min_length=1, max_length=CHALLENGE_MAX_LENGTH)
 
     @field_validator("challenge")
     @classmethod

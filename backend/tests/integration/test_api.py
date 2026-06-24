@@ -79,6 +79,13 @@ class TestPostSession:
         )
         assert response.status_code == 422
 
+    async def test_post_session_overlong_challenge_returns_422(self, client):
+        response = await client.post(
+            "/api/sessions",
+            json={"challenge": "x" * 4001},
+        )
+        assert response.status_code == 422
+
 
 class TestGetSession:
     async def test_get_session_returns_200_after_completion(self, client):
