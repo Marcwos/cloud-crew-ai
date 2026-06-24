@@ -118,6 +118,17 @@ export function Office({ officeState }: OfficeProps) {
           </span>
         </div>
       )}
+
+      {/* ── Live region — announces agent status changes to AT ───────── */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
+        className="sr-only"
+      >
+        {officeState.isRunning && !officeState.isDone && 'Crew is active and working on your challenge.'}
+        {officeState.isDone && 'Mission complete. The crew has finished.'}
+      </div>
     </section>
   )
 }

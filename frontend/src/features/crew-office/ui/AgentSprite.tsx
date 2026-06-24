@@ -14,6 +14,7 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
 
   const spriteSize = isLeader ? 'w-16 h-16' : 'w-12 h-12'
   const initialsSize = isLeader ? 'text-2xl' : 'text-lg'
+  const tooltipId = `tooltip-${state.id}`
 
   return (
     <div
@@ -23,11 +24,21 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
         isLeader && 'items-center'
       )}
     >
+      {/* Pioneer description — visually hidden, exposed to AT via aria-describedby */}
+      <span id={tooltipId} className="sr-only">
+        {meta.tooltip}
+      </span>
+
       {/* Pixel-art avatar square */}
       <div
+        role="img"
+        tabIndex={0}
+        aria-label={`${meta.name} — ${meta.role}`}
+        aria-describedby={tooltipId}
         className={cn(
           'pioneer-tooltip pixel-sprite relative flex items-center justify-center',
           'rounded-sm border-2 font-mono font-bold select-none',
+          'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-slate-900',
           spriteSize,
           'transition-all duration-200'
         )}
@@ -40,6 +51,7 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
             : 'none',
         }}
         data-tooltip={meta.tooltip}
+        title={meta.tooltip}
       >
         {/* Pixel scanlines overlay */}
         <span
@@ -51,7 +63,7 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
         />
 
         {/* Initials */}
-        <span className={cn(initialsSize, 'relative z-10 leading-none')}>
+        <span className={cn(initialsSize, 'relative z-10 leading-none')} aria-hidden>
           {meta.name.slice(0, 2).toUpperCase()}
         </span>
 
