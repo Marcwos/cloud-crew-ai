@@ -26,9 +26,21 @@ from src.features.crew.domain.agents._parsers import (
 class BaseSpecialistAgent(ABC):
     """Abstract base for all specialist agents. Enforces grounding rule."""
 
-    def __init__(self, llm: LLMProvider, knowledge: KnowledgeSource) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        knowledge: KnowledgeSource,
+        model: str | None = None,
+    ) -> None:
         self._llm = llm
         self._knowledge = knowledge
+        # Model id is injected (never hardcoded) so non-Anthropic providers work.
+        # Defaults to the config-driven specialist tier when not provided.
+        if model is None:
+            from src.shared.config import get_specialist_model
+
+            model = get_specialist_model()
+        self._model = model
 
     @property
     @abstractmethod
@@ -107,7 +119,7 @@ class BaseSpecialistAgent(ABC):
         allowed_names = {f.name for f in facts}
 
         request = LLMRequest(
-            model="claude-3-5-haiku-20241022",
+            model=self._model,
             system=self.system_prompt,
             messages=[
                 LLMMessage(

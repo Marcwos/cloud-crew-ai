@@ -317,3 +317,10 @@ class CuratedCatalogKnowledgeSource:
         Returns an empty list for unknown domains — never raises.
         """
         return list(_CATALOG.get(domain, []))
+
+    def all_service_names(self) -> set[str]:
+        """Return every service name across all domains in the catalog.
+
+        Used by the orchestrator to ground the FinalPlan against the full catalog.
+        """
+        return {fact.name for facts in _CATALOG.values() for fact in facts}

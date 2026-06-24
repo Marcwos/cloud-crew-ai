@@ -47,14 +47,26 @@ _CONSOLIDATE_SYSTEM = (
 class LeslieAgent:
     """Orchestrator: triage + consolidation. Does not produce Proposals."""
 
-    def __init__(self, llm: LLMProvider, knowledge: KnowledgeSource) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        knowledge: KnowledgeSource,
+        model: str | None = None,
+    ) -> None:
         self._llm = llm
         self._knowledge = knowledge
+        # Model id is injected (never hardcoded) so non-Anthropic providers work.
+        # Leslie may use a stronger tier than specialists; both come from config.
+        if model is None:
+            from src.shared.config import get_orchestrator_model
+
+            model = get_orchestrator_model()
+        self._model = model
 
     async def triage(self, challenge: str) -> tuple[list[Constraint], dict[str, str]]:
         """Extract constraints and assign tasks from a challenge description."""
         request = LLMRequest(
-            model="claude-3-5-sonnet-20241022",
+            model=self._model,
             system=_TRIAGE_SYSTEM,
             messages=[
                 LLMMessage(
@@ -89,7 +101,7 @@ class LeslieAgent:
         ) or "No reviews submitted."
 
         request = LLMRequest(
-            model="claude-3-5-sonnet-20241022",
+            model=self._model,
             system=_CONSOLIDATE_SYSTEM,
             messages=[
                 LLMMessage(
@@ -103,7 +115,31 @@ class LeslieAgent:
             ],
         )
         response = await self._llm.complete(request)
-        return self._parse_final_plan(response.text)
+
+        # Grounding: the FinalPlan may ONLY contain services that specialists
+        # actually proposed (already grounded against the catalog at
+        # _base_specialist.py) plus, defensively, any catalog service name.
+        # An ungrounded/invented service must NEVER reach the client.
+        allowed = await self._grounded_service_names(proposals)
+        return self._parse_final_plan(response.text, allowed)
+
+    async def _grounded_service_names(self, proposals: list[Proposal]) -> set[str]:
+        """Compute the set of services the FinalPlan is allowed to reference.
+
+        Primary source: the union of every specialist proposal's services (these
+        are already grounded against the curated catalog). Optionally widened with
+        the full catalog names when the KnowledgeSource exposes them.
+        """
+        allowed = {service for p in proposals for service in p.services}
+
+        all_names = getattr(self._knowledge, "all_service_names", None)
+        if callable(all_names):
+            result = all_names()
+            if hasattr(result, "__await__"):
+                result = await result  # type: ignore[assignment]
+            allowed |= set(result)
+
+        return allowed
 
     # ------------------------------------------------------------------
     # Private parsing helpers
@@ -140,17 +176,22 @@ class LeslieAgent:
 
         return constraints, tasks
 
-    def _parse_final_plan(self, text: str) -> FinalPlan:
+    def _parse_final_plan(self, text: str, allowed: set[str]) -> FinalPlan:
         summary = parse_single_line_section(text, "SUMMARY")
         if not summary:
             summary = "Integrated multi-layer AWS architecture based on specialist proposals"
 
         raw_services = parse_list_section(text, "SERVICES")
-        services = [s for s in raw_services if s]
+        # Grounding rule: drop any service not in the allowed (grounded) set so an
+        # invented service the LLM hallucinated cannot reach the client.
+        services = [s for s in raw_services if s and s in allowed]
         if not services:
-            services = ["AWS Lambda"]
+            # Fall back to a grounded service when parsing/filtering leaves nothing.
+            services = [sorted(allowed)[0]] if allowed else ["AWS Lambda"]
 
         justification = parse_kv_section(text, "JUSTIFICATION")
+        # Strip justification keys for any ungrounded service.
+        justification = {k: v for k, v in justification.items() if k in services}
 
         # Ensure every service has a justification entry
         for service in services:
@@ -166,4 +207,5 @@ class LeslieAgent:
             services=services,
             justification_by_service=justification,
             diagram_hint=diagram_hint,
+            allowed_services=allowed or None,
         )

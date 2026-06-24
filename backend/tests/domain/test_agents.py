@@ -14,8 +14,59 @@ from src.features.crew.domain.agents.edgar import EdgarAgent
 from src.features.crew.domain.agents.hedy import HedyAgent
 from src.features.crew.domain.agents.grace import GraceAgent
 from src.features.crew.domain.agents.vint import VintAgent
+from src.features.crew.domain.ports.llm_provider import LLMRequest, LLMResponse
 from src.features.crew.infrastructure.llm.fake_llm_provider import FakeLLMProvider
 from src.features.crew.infrastructure.knowledge.curated_catalog import CuratedCatalogKnowledgeSource
+
+
+class HallucinatingLLMProvider:
+    """Stub LLM that injects an invented (ungrounded) service into every response.
+
+    Used to prove the grounding filter actually strips services that no
+    specialist proposed and no catalog contains.
+    """
+
+    INVENTED_SERVICE = "Amazon FooBar"
+
+    def __init__(self) -> None:
+        self.received_models: list[str] = []
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        self.received_models.append(request.model)
+        system_lower = request.system.lower()
+        messages_text = " ".join(m.content.lower() for m in request.messages)
+
+        if "consolidat" in system_lower or "consolidat" in messages_text:
+            text = (
+                "SUMMARY: Plan with a hallucinated service injected.\n"
+                f"SERVICES: AWS Lambda, {self.INVENTED_SERVICE}\n"
+                "JUSTIFICATION:\n"
+                "- AWS Lambda: real grounded service\n"
+                f"- {self.INVENTED_SERVICE}: invented service that must be stripped\n"
+                "DIAGRAM_HINT: Lambda flow\n"
+            )
+            return LLMResponse(text=text, model=request.model)
+
+        # Specialist proposal path — inject the invented service first.
+        text = (
+            f"SERVICES: {self.INVENTED_SERVICE}, AWS Lambda\n"
+            "RATIONALE: includes an invented service that must be filtered out\n"
+            "ALTERNATIVES_REJECTED:\n- Amazon EC2: too heavy\n"
+            "TRADE_OFFS: cost vs simplicity\n"
+        )
+        return LLMResponse(text=text, model=request.model)
+
+
+class ModelCapturingLLMProvider:
+    """Stub LLM that records the model id of every request it receives."""
+
+    def __init__(self) -> None:
+        self.received_models: list[str] = []
+        self._delegate = FakeLLMProvider()
+
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        self.received_models.append(request.model)
+        return await self._delegate.complete(request)
 
 
 @pytest.fixture
@@ -207,3 +258,154 @@ class TestVintAgent:
         known_names = {sf.name for sf in known}
         for service in proposal.services:
             assert service in known_names
+
+
+class TestSpecialistGroundingRejection:
+    """Blocker 4 — the grounding filter must actively REJECT invented services."""
+
+    async def test_specialist_strips_invented_service(self, knowledge, base_session):
+        """A hallucinating LLM proposing 'Amazon FooBar' must NOT reach the Proposal."""
+        llm = HallucinatingLLMProvider()
+        agent = AlanAgent(llm=llm, knowledge=knowledge)
+
+        proposal = await agent.propose(base_session)
+
+        assert HallucinatingLLMProvider.INVENTED_SERVICE not in proposal.services
+        known = await knowledge.services_for("compute", "")
+        known_names = {sf.name for sf in known}
+        for service in proposal.services:
+            assert service in known_names
+        # The real grounded service it also proposed survives the filter.
+        assert "AWS Lambda" in proposal.services
+
+
+class TestFinalPlanGrounding:
+    """Blocker 1 — Leslie's FinalPlan must be grounded: no invented service can reach the client."""
+
+    async def test_consolidate_strips_invented_service_from_final_plan(self, knowledge):
+        """A consolidate LLM output with an invented service must be filtered out."""
+        llm = HallucinatingLLMProvider()
+        agent = LeslieAgent(llm=llm, knowledge=knowledge)
+
+        proposals = [
+            Proposal(
+                agent="alan",
+                services=["AWS Lambda", "Amazon API Gateway"],
+                rationale="Serverless compute",
+                alternatives_rejected=["Amazon EC2: heavier"],
+                trade_offs="cold start vs idle cost",
+            ),
+        ]
+
+        final_plan = await agent.consolidate(proposals, [])
+
+        assert HallucinatingLLMProvider.INVENTED_SERVICE not in final_plan.services
+        assert (
+            HallucinatingLLMProvider.INVENTED_SERVICE
+            not in final_plan.justification_by_service
+        )
+        # Grounded services proposed by specialists survive.
+        assert "AWS Lambda" in final_plan.services
+
+    async def test_final_plan_only_contains_grounded_services(self, fake_llm, knowledge):
+        """Every service in the FinalPlan must be grounded — proposal union ∪ catalog."""
+        agent = LeslieAgent(llm=fake_llm, knowledge=knowledge)
+
+        proposals = [
+            Proposal(
+                agent="alan",
+                services=["AWS Lambda", "Amazon API Gateway"],
+                rationale="r",
+                alternatives_rejected=["Amazon EC2: heavier"],
+                trade_offs="t",
+            ),
+            Proposal(
+                agent="edgar",
+                services=["Amazon DynamoDB", "Amazon S3"],
+                rationale="r",
+                alternatives_rejected=["Amazon RDS: heavier"],
+                trade_offs="t",
+            ),
+        ]
+        grounded = {s for p in proposals for s in p.services} | knowledge.all_service_names()
+
+        final_plan = await agent.consolidate(proposals, [])
+
+        for service in final_plan.services:
+            assert service in grounded, f"Ungrounded service '{service}' reached the FinalPlan"
+
+
+class TestFinalPlanEntityGrounding:
+    """Blocker 1 — the FinalPlan entity should be able to reject ungrounded services itself."""
+
+    def test_entity_rejects_service_not_in_allowed_set(self):
+        with pytest.raises(ValueError, match="not grounded"):
+            FinalPlan(
+                summary="s",
+                services=["AWS Lambda", "Amazon FooBar"],
+                justification_by_service={
+                    "AWS Lambda": "ok",
+                    "Amazon FooBar": "invented",
+                },
+                diagram_hint="d",
+                allowed_services={"AWS Lambda"},
+            )
+
+    def test_entity_accepts_grounded_services(self):
+        plan = FinalPlan(
+            summary="s",
+            services=["AWS Lambda"],
+            justification_by_service={"AWS Lambda": "ok"},
+            diagram_hint="d",
+            allowed_services={"AWS Lambda", "Amazon S3"},
+        )
+        assert plan.services == ["AWS Lambda"]
+
+
+class TestModelInjection:
+    """Blocker 2 — model id must come from config/injection, never hardcoded Claude ids."""
+
+    async def test_specialist_uses_injected_model(self, knowledge, base_session):
+        llm = ModelCapturingLLMProvider()
+        sentinel = "sentinel-specialist-model"
+        agent = AlanAgent(llm=llm, knowledge=knowledge, model=sentinel)
+
+        await agent.propose(base_session)
+
+        assert llm.received_models == [sentinel]
+
+    async def test_leslie_triage_uses_injected_model(self, knowledge):
+        llm = ModelCapturingLLMProvider()
+        sentinel = "sentinel-orchestrator-model"
+        agent = LeslieAgent(llm=llm, knowledge=knowledge, model=sentinel)
+
+        await agent.triage("Build something")
+
+        assert llm.received_models == [sentinel]
+
+    async def test_leslie_consolidate_uses_injected_model(self, knowledge):
+        llm = ModelCapturingLLMProvider()
+        sentinel = "sentinel-orchestrator-model"
+        agent = LeslieAgent(llm=llm, knowledge=knowledge, model=sentinel)
+
+        proposals = [
+            Proposal(
+                agent="alan",
+                services=["AWS Lambda"],
+                rationale="r",
+                alternatives_rejected=["Amazon EC2: heavier"],
+                trade_offs="t",
+            ),
+        ]
+        await agent.consolidate(proposals, [])
+
+        assert llm.received_models == [sentinel]
+
+    async def test_no_hardcoded_claude_model_in_request(self, knowledge, base_session):
+        """The model sent must be the injected one, not a hardcoded claude-* literal."""
+        llm = ModelCapturingLLMProvider()
+        agent = AlanAgent(llm=llm, knowledge=knowledge, model="my-custom-model")
+
+        await agent.propose(base_session)
+
+        assert all(not m.startswith("claude-") for m in llm.received_models)
