@@ -75,7 +75,7 @@ describe('parseAgentEvent', () => {
     expect(event.agent).toBe('vint')
     expect(event.action).toBe('moving')
     // extra fields should not be on the returned object
-    expect((event as Record<string, unknown>)['someRandomExtra']).toBeUndefined()
+    expect((event as unknown as Record<string, unknown>)['someRandomExtra']).toBeUndefined()
   })
 
   it('handles empty status and message gracefully', () => {
