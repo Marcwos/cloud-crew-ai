@@ -124,3 +124,61 @@ class TestSSEEventPublisher:
 
         assert collected[0]["agent"] == "grace"
         assert collected[0]["action"] == "reviewing"
+
+    async def test_terminal_error_event_closes_stream(self, publisher):
+        """A leslie/done/error event must also terminate the stream (Blocker 3)."""
+        session_id = "session-error-close"
+
+        async def producer():
+            await publisher.publish(
+                session_id,
+                AgentEvent(agent="leslie", action="done", status="error", message="boom"),
+            )
+
+        asyncio.create_task(producer())
+
+        collected = []
+        async for data in publisher.event_stream(session_id):
+            collected.append(data)
+
+        assert len(collected) == 1
+        assert "error" in collected[0]
+
+    async def test_event_stream_does_not_hang_forever(self, publisher):
+        """With a short idle timeout, a stream with no terminal event must still end."""
+        session_id = "session-no-terminal"
+
+        async def producer():
+            await publisher.publish(
+                session_id,
+                AgentEvent(agent="alan", action="analyzing", status="ok", message="m"),
+            )
+            # No terminal event is ever published.
+
+        asyncio.create_task(producer())
+
+        collected = []
+        # Bound at the test level: if the generator hangs, wait_for fails loudly.
+        async def drain():
+            async for data in publisher.event_stream(session_id, idle_timeout=0.2):
+                collected.append(data)
+
+        await asyncio.wait_for(drain(), timeout=5.0)
+        assert len(collected) >= 1
+
+    async def test_queue_removed_after_stream_closes(self, publisher):
+        """The per-session queue must be cleaned up when the stream ends (no leak)."""
+        session_id = "session-cleanup"
+
+        async def producer():
+            await publisher.publish(
+                session_id,
+                AgentEvent(agent="leslie", action="done", status="ok", message="done"),
+            )
+
+        asyncio.create_task(producer())
+
+        async for _ in publisher.event_stream(session_id):
+            pass
+
+        assert session_id not in publisher._queues

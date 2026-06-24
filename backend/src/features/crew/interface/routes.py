@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
+import logging
+
 from src.features.crew.application.use_cases.get_session import get_session
 from src.features.crew.application.use_cases.run_crew_session import CrewSessionDeps
 from src.features.crew.domain.entities.crew_session import CrewSession
+from src.features.crew.domain.value_objects.agent_event import AgentEvent
 from src.features.crew.infrastructure.orchestration.langgraph_graph import run_graph
 from src.features.crew.interface.schemas import (
     HealthResponse,
@@ -20,6 +23,8 @@ from src.features.crew.interface.schemas import (
     StartSessionResponse,
 )
 from src.features.crew.interface.sse import stream_session_events
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -74,9 +79,41 @@ async def start_session(
     await deps.repo.save(placeholder)
 
     async def _run() -> None:
-        session = await run_graph(body.challenge, deps, session_id=session_id)
-        # Overwrite the placeholder with the fully populated session (same id).
-        await deps.repo.save(session)
+        try:
+            session = await run_graph(body.challenge, deps, session_id=session_id)
+            # Overwrite the placeholder with the fully populated session (same id).
+            await deps.repo.save(session)
+        except Exception as exc:  # noqa: BLE001 — must not let the run die silently
+            # A failed run must NEVER leave the SSE stream hanging. Publish a
+            # terminal error event so the stream sentinel fires and the client
+            # sees a failure instead of an indefinite wait.
+            logger.exception("Crew run failed for session %s", session_id)
+            error_event = AgentEvent(
+                agent="leslie",
+                action="done",
+                status="error",
+                message=f"Run failed: {exc}",
+            )
+            try:
+                await deps.events.publish(session_id, error_event)
+            except Exception:  # noqa: BLE001 — best-effort terminal signal
+                logger.exception("Failed to publish terminal error event for %s", session_id)
+
+            # Persist the session in a retrievable failed state (no final_plan).
+            failed = CrewSession(
+                session_id=session_id,
+                challenge=body.challenge,
+                constraints=[],
+                tasks={},
+                proposals=[],
+                reviews=[],
+                final_plan=None,
+                events=[error_event],
+            )
+            try:
+                await deps.repo.save(failed)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to persist failed session %s", session_id)
 
     background_tasks.add_task(_run)
     return StartSessionResponse(session_id=session_id)

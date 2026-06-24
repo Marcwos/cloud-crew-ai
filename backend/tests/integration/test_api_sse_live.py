@@ -42,12 +42,42 @@ def _live_deps() -> CrewSessionDeps:
     )
 
 
+class ExplodingLLMProvider:
+    """Stub LLM that always raises — simulates an LLM/provider outage."""
+
+    async def complete(self, request):  # noqa: ANN001
+        raise RuntimeError("simulated LLM outage")
+
+
+def _failing_deps() -> CrewSessionDeps:
+    """Deps whose LLM always raises, with the REAL SSE publisher."""
+    return CrewSessionDeps(
+        llm=ExplodingLLMProvider(),
+        knowledge=CuratedCatalogKnowledgeSource(),
+        repo=InMemoryCrewRepository(),
+        events=SSEEventPublisher(),
+    )
+
+
 @pytest.fixture
 async def live_client():
     from src.main import create_app
 
     app = create_app()
     app.state.deps = _live_deps()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
+
+
+@pytest.fixture
+async def failing_client():
+    from src.main import create_app
+
+    app = create_app()
+    app.state.deps = _failing_deps()
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -143,3 +173,62 @@ class TestPlaceholderPersistence:
         assert data is not None, "final_plan never populated"
         assert data["final_plan"]["summary"] != ""
         assert len(data["final_plan"]["services"]) >= 1
+
+
+class TestRunFailureTerminatesStream:
+    """Blocker 3 — an LLM/provider failure must NOT hang the SSE stream."""
+
+    async def test_stream_ends_with_terminal_error_event_on_failure(self, failing_client):
+        """A failing run must publish a terminal leslie/done/error so the stream closes."""
+        resp = await failing_client.post(
+            "/api/sessions", json={"challenge": "Will fail mid-run"}
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["session_id"]
+
+        # If error handling is missing, this GET would hang forever waiting on
+        # the SSE queue. asyncio.wait_for bounds the test so a hang fails loudly.
+        stream_resp = await asyncio.wait_for(
+            failing_client.get(f"/api/sessions/{session_id}/events"),
+            timeout=5.0,
+        )
+        assert stream_resp.status_code == 200
+
+        parsed = _parse_sse(stream_resp.text)
+        assert len(parsed) > 0, "Failed run produced no events — stream would hang"
+
+        last = parsed[-1]
+        assert last["agent"] == "leslie"
+        assert last["action"] == "done"
+        assert last["status"] == "error"
+
+    async def test_session_retrievable_in_failed_state(self, failing_client):
+        """After a failed run, GET must return the session with a terminal error event."""
+        resp = await failing_client.post(
+            "/api/sessions", json={"challenge": "Will fail mid-run"}
+        )
+        session_id = resp.json()["session_id"]
+
+        # Drain the (now bounded) stream so the background run has finished.
+        await asyncio.wait_for(
+            failing_client.get(f"/api/sessions/{session_id}/events"),
+            timeout=5.0,
+        )
+
+        failed = None
+        for _ in range(40):
+            get_resp = await failing_client.get(f"/api/sessions/{session_id}")
+            if get_resp.status_code == 200:
+                body = get_resp.json()
+                if any(
+                    e["agent"] == "leslie"
+                    and e["action"] == "done"
+                    and e["status"] == "error"
+                    for e in body.get("events", [])
+                ):
+                    failed = body
+                    break
+            await asyncio.sleep(0.05)
+
+        assert failed is not None, "session never reached a retrievable failed state"
+        assert failed["final_plan"] is None
