@@ -1,4 +1,4 @@
-import { useReducer, useState, useCallback, useRef } from 'react'
+import { useReducer, useState, useCallback, useRef, useEffect } from 'react'
 import { agentReducer, createInitialOfficeState } from './agentReducer'
 import type { OfficeState, FinalPlan, AgentEvent } from '../domain/types'
 import type { ApiClient } from '../infrastructure/apiClient'
@@ -25,6 +25,7 @@ export interface UseCrewSessionResult {
 type ReducerAction =
   | { type: 'AGENT_EVENT'; payload: AgentEvent }
   | { type: 'SESSION_STARTED'; sessionId: string }
+  | { type: 'SESSION_FAILED' }
   | { type: 'RESET' }
 
 function officeReducer(state: OfficeState, action: ReducerAction): OfficeState {
@@ -38,6 +39,12 @@ function officeReducer(state: OfficeState, action: ReducerAction): OfficeState {
         sessionId: action.sessionId,
         isRunning: true,
         isDone: false,
+      }
+
+    case 'SESSION_FAILED':
+      return {
+        ...state,
+        isRunning: false,
       }
 
     case 'RESET':
@@ -62,8 +69,11 @@ export function useCrewSession({
   const [finalPlan, setFinalPlan] = useState<FinalPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Keep a ref to the SSE cleanup fn so we can abort on re-runs
+  // Keep a ref to the SSE cleanup fn so we can abort on re-runs or unmount
   const sseCleanupRef = useRef<(() => void) | null>(null)
+
+  // Close the SSE connection when the hook unmounts
+  useEffect(() => () => { sseCleanupRef.current?.() }, [])
 
   const startSession = useCallback(
     async (challenge: string) => {
@@ -86,6 +96,9 @@ export function useCrewSession({
         return
       }
 
+      // Capture the active session id to guard against stale async resolutions
+      const activeSessionId = sessionId
+
       // Mark session as running
       dispatch({ type: 'SESSION_STARTED', sessionId })
 
@@ -98,8 +111,10 @@ export function useCrewSession({
         () => {
           // onDone callback — leslie/done was received; fetch the full session
           apiClient
-            .getSession(sessionId)
+            .getSession(activeSessionId)
             .then((session) => {
+              // Ignore if a new session has already started
+              if (session.session_id !== activeSessionId) return
               if (session.final_plan) {
                 setFinalPlan(session.final_plan)
               }
@@ -108,6 +123,11 @@ export function useCrewSession({
               const message = err instanceof Error ? err.message : String(err)
               setError(message)
             })
+        },
+        (message: string) => {
+          // onError callback — SSE stream dropped
+          dispatch({ type: 'SESSION_FAILED' })
+          setError(message)
         }
       )
 

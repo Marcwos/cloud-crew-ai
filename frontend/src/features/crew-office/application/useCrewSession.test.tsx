@@ -28,7 +28,8 @@ function makeMockSseFactory(
   onCreateCallback?: (
     url: string,
     onEvent: (event: AgentEvent) => void,
-    onDone: () => void
+    onDone: () => void,
+    onError: (message: string) => void
   ) => void
 ): SseClientFactory {
   return {
@@ -36,10 +37,11 @@ function makeMockSseFactory(
       (
         url: string,
         onEvent: (event: AgentEvent) => void,
-        onDone: () => void
+        onDone: () => void,
+        onError: (message: string) => void
       ) => {
         if (onCreateCallback) {
-          onCreateCallback(url, onEvent, onDone)
+          onCreateCallback(url, onEvent, onDone, onError)
         }
         // Return a cleanup function
         return () => {}
@@ -247,5 +249,63 @@ describe('useCrewSession', () => {
     })
 
     expect(result.current.error).not.toBeNull()
+  })
+
+  // ── BLOCKER 1: SSE cleanup on unmount ─────────────────────────────────────
+
+  it('calls the SSE cleanup function when the hook unmounts mid-stream', async () => {
+    const cleanup = vi.fn()
+    const mockSseFactory: SseClientFactory = {
+      create: vi.fn().mockImplementation(() => cleanup),
+    }
+
+    const { result, unmount } = renderHook(() =>
+      useCrewSession({
+        apiClient: makeMockApiClient(),
+        sseClientFactory: mockSseFactory,
+      })
+    )
+
+    await act(async () => {
+      await result.current.startSession('test')
+    })
+
+    expect(cleanup).not.toHaveBeenCalled()
+
+    // Unmount mid-stream — cleanup must fire
+    unmount()
+
+    expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  // ── BLOCKER 2: SSE error surfaces to UI and clears running state ──────────
+
+  it('sets error and clears isRunning when the SSE stream errors', async () => {
+    let capturedOnError: ((message: string) => void) | null = null
+
+    const mockSseFactory = makeMockSseFactory((_url, _onEvent, _onDone, onError) => {
+      capturedOnError = onError
+    })
+
+    const { result } = renderHook(() =>
+      useCrewSession({
+        apiClient: makeMockApiClient(),
+        sseClientFactory: mockSseFactory,
+      })
+    )
+
+    await act(async () => {
+      await result.current.startSession('test')
+    })
+
+    expect(result.current.officeState.isRunning).toBe(true)
+    expect(capturedOnError).not.toBeNull()
+
+    act(() => {
+      capturedOnError!('Connection lost')
+    })
+
+    expect(result.current.officeState.isRunning).toBe(false)
+    expect(result.current.error).toBe('Connection lost')
   })
 })

@@ -8,12 +8,14 @@ export interface SseClientFactory {
    * Opens an SSE connection to `url`.
    * - onEvent is called for every `data:` line that parses as AgentEvent.
    * - onDone is called when the leslie/done terminal event fires.
+   * - onError is called when the EventSource fires an error event.
    * - Returns a cleanup function that closes the connection.
    */
   create(
     url: string,
     onEvent: (event: AgentEvent) => void,
-    onDone: () => void
+    onDone: () => void,
+    onError: (message: string) => void
   ): () => void
 }
 
@@ -21,7 +23,7 @@ export interface SseClientFactory {
 
 export function createSseClientFactory(): SseClientFactory {
   return {
-    create(url, onEvent, onDone) {
+    create(url, onEvent, onDone, onError) {
       const source = new EventSource(url)
 
       source.onmessage = (ev: MessageEvent<string>) => {
@@ -46,6 +48,7 @@ export function createSseClientFactory(): SseClientFactory {
       source.onerror = (err) => {
         console.error('[sseClient] EventSource error:', err)
         source.close()
+        onError('SSE connection lost')
       }
 
       // Return cleanup — callers can invoke this to abort early
