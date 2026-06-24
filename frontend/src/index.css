@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Cloud Crew AI — Pixel Office Design System
+   ============================================================ */
+
+:root {
+  /* Background */
+  --color-bg: #0F172A;
+  --color-surface: #1E293B;
+  --color-surface-elevated: #253047;
+  --color-border: #334155;
+
+  /* Text */
+  --color-text-primary: #F1F5F9;
+  --color-text-muted: #94A3B8;
+  --color-text-dim: #64748B;
+
+  /* Agent accent colors */
+  --color-leslie: #8B5CF6;
+  --color-alan: #3B82F6;
+  --color-edgar: #10B981;
+  --color-hedy: #EF4444;
+  --color-grace: #F59E0B;
+  --color-vint: #06B6D4;
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Pixel-art scanline overlay ────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Typography ─────────────────────────────────────────────── */
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Pioneer tooltip ─────────────────────────────────────────── */
+.pioneer-tooltip {
+  position: relative;
+  cursor: help;
+}
+
+.pioneer-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0F172A;
+  border: 1px solid #334155;
+  color: #CBD5E1;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 1.4;
+  padding: 6px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) ease;
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+}
+
+.pioneer-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #334155;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) ease;
+  z-index: 101;
+}
+
+.pioneer-tooltip:hover::after,
+.pioneer-tooltip:hover::before {
+  opacity: 1;
+}
+
+/* ── Action badge pulse animations ──────────────────────────── */
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes badge-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.badge-moving {
+  animation: badge-bounce 0.8s ease-in-out infinite;
+}
+
+.badge-analyzing {
+  animation: badge-pulse 1.2s ease-in-out infinite;
+}
+
+/* ── Office grid layout ──────────────────────────────────────── */
+.office-layout {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-8);
+}
+
+.office-specialists-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-6);
+}
+
+@media (min-width: 900px) {
+  .office-specialists-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ── Station card ────────────────────────────────────────────── */
+.station-card {
+  border-radius: 8px;
+  border: 1px solid;
+  overflow: hidden;
+  transition: box-shadow var(--duration-normal) var(--ease-out-expo);
+}
+
+.station-card:hover {
+  box-shadow: 0 0 24px rgba(0,0,0,0.4);
+}
+
+.station-header {
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-bottom: 1px solid;
+}
+
+.station-body {
+  padding: var(--space-4);
+}
+
+/* ── Pixel sprite ────────────────────────────────────────────── */
+.pixel-sprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ── Challenge input ─────────────────────────────────────────── */
+.challenge-textarea {
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  line-height: 1.7;
+  width: 100%;
+  caret-color: var(--color-leslie);
+}
+
+.challenge-textarea::placeholder {
+  color: var(--color-text-dim);
+}
+
+/* ── Plan panel ──────────────────────────────────────────────── */
+.plan-panel {
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.plan-service-item {
+  border-radius: 6px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+}
+
+/* ── Scrollbar styling ───────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
