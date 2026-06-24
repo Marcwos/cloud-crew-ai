@@ -11,16 +11,20 @@ export function ChallengeInput({ onSubmit, isRunning, isDone }: ChallengeInputPr
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  function submit() {
     const trimmed = value.trim()
     if (!trimmed || isRunning) return
     onSubmit(trimmed)
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    submit()
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleSubmit(e as unknown as React.FormEvent)
+      submit()
     }
   }
 
