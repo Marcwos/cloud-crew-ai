@@ -318,13 +318,22 @@ def _build_graph(deps: CrewSessionDeps) -> StateGraph:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def run_graph(challenge: str, deps: CrewSessionDeps) -> CrewSession:
+async def run_graph(
+    challenge: str,
+    deps: CrewSessionDeps,
+    session_id: str | None = None,
+) -> CrewSession:
     """Execute the full crew workflow via LangGraph and return a populated CrewSession.
 
-    This is the entry point called by the use case. It does NOT persist the session —
-    the caller (use case or route) is responsible for that.
+    This is the entry point called by the use case / route. It does NOT persist the
+    session — the caller is responsible for that.
+
+    The caller may pass session_id so that every published AgentEvent is keyed to the
+    same id the client received (the SSE queue is keyed by this id). When omitted, a
+    fresh id is generated.
     """
-    session_id = str(uuid.uuid4())
+    if session_id is None:
+        session_id = str(uuid.uuid4())
     graph = _build_graph(deps)
 
     initial_state: GraphState = {

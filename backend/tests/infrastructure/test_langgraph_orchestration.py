@@ -82,3 +82,27 @@ class TestLangGraphGraph:
             assert proposal.rationale != ""
             assert len(proposal.alternatives_rejected) >= 1
             assert len(proposal.services) >= 1
+
+
+class TestRunGraphSessionId:
+    """run_graph must honour a caller-supplied session_id.
+
+    The route pre-allocates the id returned to the client and the SSE queue is
+    keyed by that id. If the graph mints its own id, every event lands in the
+    wrong queue and the live stream is empty.
+    """
+
+    async def test_run_graph_uses_provided_session_id(self, deps):
+        session = await run_graph("Build a serverless pipeline", deps, session_id="fixed-id-123")
+        assert session.session_id == "fixed-id-123"
+
+    async def test_run_graph_publishes_under_provided_session_id(self, deps):
+        await run_graph("Real-time data ingestion", deps, session_id="fixed-id-456")
+        published_ids = {sid for sid, _ in deps.events.published_events}
+        assert published_ids == {"fixed-id-456"}
+
+    async def test_run_graph_generates_id_when_omitted(self, deps):
+        """Backward compatible: omitting session_id still works."""
+        session = await run_graph("Multi-tenant SaaS backend", deps)
+        assert isinstance(session.session_id, str)
+        assert len(session.session_id) > 0

@@ -8,13 +8,10 @@ Routes:
 """
 from __future__ import annotations
 
-import asyncio
-from typing import Annotated
-
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from src.features.crew.application.use_cases.get_session import get_session
-from src.features.crew.application.use_cases.run_crew_session import CrewSessionDeps, run_crew_session
+from src.features.crew.application.use_cases.run_crew_session import CrewSessionDeps
 from src.features.crew.domain.entities.crew_session import CrewSession
 from src.features.crew.infrastructure.orchestration.langgraph_graph import run_graph
 from src.features.crew.interface.schemas import (
@@ -57,29 +54,29 @@ async def start_session(
     to check completion status.
     """
     deps: CrewSessionDeps = _get_deps(request)
-    # Generate session ID upfront so we can return it immediately
+    # Generate session ID upfront so we can return it immediately.
     import uuid
     session_id = str(uuid.uuid4())
 
+    # Persist a placeholder NOW so GET /api/sessions/{id}[/events] can attach to
+    # the live stream while the crew is still working (no 404 race). The run keys
+    # every event to this same id, so the SSE queue lines up with what we return.
+    placeholder = CrewSession(
+        session_id=session_id,
+        challenge=body.challenge,
+        constraints=[],
+        tasks={},
+        proposals=[],
+        reviews=[],
+        final_plan=None,
+        events=[],
+    )
+    await deps.repo.save(placeholder)
+
     async def _run() -> None:
-        session = await run_graph(body.challenge, deps)
-        # Persist under the pre-allocated ID by updating the session
-        # (run_graph generates its own ID internally; we persist via repo here)
+        session = await run_graph(body.challenge, deps, session_id=session_id)
+        # Overwrite the placeholder with the fully populated session (same id).
         await deps.repo.save(session)
-        # Also register under the returned session_id if it differs
-        if session.session_id != session_id:
-            import dataclasses
-            updated = CrewSession(
-                session_id=session_id,
-                challenge=session.challenge,
-                constraints=session.constraints,
-                tasks=session.tasks,
-                proposals=session.proposals,
-                reviews=session.reviews,
-                final_plan=session.final_plan,
-                events=session.events,
-            )
-            await deps.repo.save(updated)
 
     background_tasks.add_task(_run)
     return StartSessionResponse(session_id=session_id)
