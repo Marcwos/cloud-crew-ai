@@ -7,6 +7,7 @@ import pytest
 from src.features.crew.domain.entities.proposal import Proposal
 from src.features.crew.domain.entities.crew_session import CrewSession
 from src.features.crew.domain.entities.final_plan import FinalPlan
+from src.features.crew.domain.entities.review import Review
 from src.features.crew.domain.value_objects.constraint import Constraint
 from src.features.crew.domain.agents.leslie import LeslieAgent
 from src.features.crew.domain.agents.alan import AlanAgent
@@ -409,3 +410,120 @@ class TestModelInjection:
         await agent.propose(base_session)
 
         assert all(not m.startswith("claude-") for m in llm.received_models)
+
+
+class TestSpecialistRePropose:
+    """WU4 — `re_propose` (R5, R6). Reuses the SAME grounding funnel as
+    `propose()` (`_base_specialist.py:84-114`): no new grounding code.
+    """
+
+    def _original_alan_proposal(self) -> Proposal:
+        return Proposal(
+            agent="alan",
+            services=["AWS Lambda", "Amazon API Gateway"],
+            rationale="Serverless is cost-effective for variable load",
+            alternatives_rejected=[
+                "Amazon ECS: Overkill for stateless functions; requires cluster management",
+            ],
+            trade_offs="Cold starts vs no idle cost",
+        )
+
+    def _review_challenging_ecs(self) -> Review:
+        return Review(
+            reviewer="grace",
+            target_agent="alan",
+            challenge=(
+                "For sustained workloads, Amazon ECS with Fargate may offer lower "
+                "total cost than Lambda with provisioned concurrency."
+            ),
+            trade_off="Lambda flexibility vs ECS predictable pricing for constant load",
+        )
+
+    async def test_re_propose_strips_invented_service(self, knowledge, base_session):
+        """Mirrors TestSpecialistGroundingRejection — same funnel, new entry
+        point. A hallucinated service must NOT survive re-propose either (R5).
+        """
+        llm = HallucinatingLLMProvider()
+        agent = AlanAgent(llm=llm, knowledge=knowledge)
+        original = self._original_alan_proposal()
+        review = self._review_challenging_ecs()
+
+        revised = await agent.re_propose(base_session, original, review, "Amazon ECS")
+
+        assert revised is not None
+        assert HallucinatingLLMProvider.INVENTED_SERVICE not in revised.services
+        known = await knowledge.services_for("compute", "")
+        known_names = {sf.name for sf in known}
+        for service in revised.services:
+            assert service in known_names
+        # The real grounded service the hallucinating stub also proposed survives.
+        assert "AWS Lambda" in revised.services
+
+    async def test_re_propose_returns_none_when_response_has_no_grounded_service(
+        self, knowledge, base_session
+    ):
+        """R5 — an unparseable/all-invented response means NO revision, not a
+        fabricated one. The caller (WU5's graph node) is responsible for
+        keeping the original proposal when this returns None.
+        """
+
+        class RefusingLLMProvider:
+            async def complete(self, request: LLMRequest) -> LLMResponse:
+                return LLMResponse(
+                    text="I'm sorry, I cannot provide a recommendation right now.",
+                    model=request.model,
+                )
+
+        agent = AlanAgent(llm=RefusingLLMProvider(), knowledge=knowledge)
+        original = self._original_alan_proposal()
+        review = self._review_challenging_ecs()
+
+        revised = await agent.re_propose(base_session, original, review, "Amazon ECS")
+
+        assert revised is None
+
+    async def test_re_propose_differs_from_original(self, knowledge, base_session):
+        """R6 — a revised proposal identical to the original is exactly the
+        bug this feature exists to prevent: a debate that changes nothing.
+        """
+        fake_llm = FakeLLMProvider()
+        agent = AlanAgent(llm=fake_llm, knowledge=knowledge)
+        original = self._original_alan_proposal()
+        review = self._review_challenging_ecs()
+
+        revised = await agent.re_propose(base_session, original, review, "Amazon ECS")
+
+        assert revised is not None
+        assert (
+            revised.services != original.services
+            or revised.alternatives_rejected != original.alternatives_rejected
+        )
+        # Falsifiable specifics, not just "differs somehow": Alan flips —
+        # ECS moves rejected -> accepted, Lambda moves accepted -> rejected
+        # (design §5.6, FakeLLMProvider._RE_PROPOSAL_RESPONSES["alan"]).
+        assert "Amazon ECS" in revised.services
+        assert "AWS Lambda" not in revised.services
+        assert any("Lambda" in a for a in revised.alternatives_rejected)
+
+    async def test_re_propose_dispatch_does_not_collide_with_original_or_review(
+        self, knowledge, base_session
+    ):
+        """(c) — the re-propose prompt must dispatch to FakeLLMProvider's
+        re-proposal-specific canned response, not fall through to the
+        specialist's ORIGINAL canned response or the cross-review template
+        (the D4.1/BUG B collision WU1 prevented at the dispatch layer).
+        """
+        fake_llm = FakeLLMProvider()
+        agent = AlanAgent(llm=fake_llm, knowledge=knowledge)
+        original = self._original_alan_proposal()
+        review = self._review_challenging_ecs()
+
+        revised = await agent.re_propose(base_session, original, review, "Amazon ECS")
+
+        assert revised is not None
+        # Not the original canned rationale (would mean it fell into the
+        # generic specialist-name loop instead of the re-proposal branch).
+        assert revised.rationale != original.rationale
+        assert "Grace's cost challenge" in revised.rationale
+        # Not the cross-review template either (no REVIEW/REVIEWER content).
+        assert "REVIEWER" not in revised.rationale
