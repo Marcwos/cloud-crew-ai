@@ -87,6 +87,20 @@ body::before {
   font-family: var(--font-mono);
 }
 
+/* Screen-reader-only. Defined explicitly — Tailwind v4 wasn't emitting it,
+   which leaked the pioneer descriptions as visible text on the floor. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── Pioneer tooltip ─────────────────────────────────────────── */
 .pioneer-tooltip {
   position: relative;
@@ -169,6 +183,35 @@ body::before {
 @media (min-width: 900px) {
   .office-specialists-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ── Agent sprite animation (Clawd-style life) ───────────────── */
+@keyframes sprite-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+/* Working: quicker bob + a little wiggle */
+@keyframes sprite-work {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  25%      { transform: translateY(-6px) rotate(0deg); }
+  50%      { transform: translateY(0) rotate(2deg); }
+  75%      { transform: translateY(-6px) rotate(0deg); }
+}
+
+.agent-avatar {
+  animation: sprite-bob 2.6s ease-in-out infinite;
+}
+
+.agent-avatar.is-active {
+  animation: sprite-work 0.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-avatar,
+  .agent-avatar.is-active {
+    animation: none;
   }
 }
 
