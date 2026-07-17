@@ -68,3 +68,44 @@ class TestBuildDeps:
             deps = factory_mod.build_deps()
             from src.features.crew.infrastructure.llm.fake_llm_provider import FakeLLMProvider
             assert isinstance(deps.llm, FakeLLMProvider)
+
+
+class TestApiKeyForProvider:
+    """The api key must be selected by provider, never a first-non-empty scan.
+
+    Regression guard: a first-non-empty scan passed an ANTHROPIC_API_KEY to the
+    OpenAI adapter whenever both keys were set, breaking auth silently.
+    """
+
+    def test_openai_provider_uses_openai_key_even_when_anthropic_key_present(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        environ = {"ANTHROPIC_API_KEY": "anthropic-secret", "OPENAI_API_KEY": "openai-secret"}
+        assert _api_key_for_provider("openai", environ) == "openai-secret"
+
+    def test_anthropic_provider_uses_anthropic_key(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        environ = {"ANTHROPIC_API_KEY": "anthropic-secret", "OPENAI_API_KEY": "openai-secret"}
+        assert _api_key_for_provider("anthropic", environ) == "anthropic-secret"
+
+    def test_deepseek_provider_uses_deepseek_key(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        environ = {"OPENAI_API_KEY": "openai-secret", "DEEPSEEK_API_KEY": "deepseek-secret"}
+        assert _api_key_for_provider("deepseek", environ) == "deepseek-secret"
+
+    def test_bedrock_provider_has_no_api_key(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        assert _api_key_for_provider("bedrock", {"AWS_DEFAULT_REGION": "us-east-1"}) is None
+
+    def test_missing_key_returns_none(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        assert _api_key_for_provider("openai", {}) is None
+
+    def test_provider_name_is_case_insensitive(self):
+        from src.shared.deps_factory import _api_key_for_provider
+
+        assert _api_key_for_provider("OpenAI", {"OPENAI_API_KEY": "k"}) == "k"
