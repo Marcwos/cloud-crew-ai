@@ -117,3 +117,45 @@ export const ACTION_BADGE: Record<AgentAction, ActionBadgeMeta> = {
 // ── Specialist agent order (leslie is always first/top) ────────────────────
 
 export const SPECIALIST_IDS: AgentId[] = ['alan', 'edgar', 'hedy', 'grace', 'vint']
+
+// ── 2D office positions ────────────────────────────────────────────────────
+// Coordinates are percentages of the office floor (x = left, y = top).
+// Agents render absolutely-positioned; changing coords + a CSS transition
+// makes them *walk* between their desk and the meeting table. No game loop.
+
+export interface Point {
+  x: number
+  y: number
+}
+
+/** Where each agent sits when idle — desks around the room perimeter. */
+export const HOME_POS: Record<AgentId, Point> = {
+  leslie: { x: 50, y: 16 }, // head of the room
+  alan: { x: 14, y: 30 },
+  edgar: { x: 14, y: 72 },
+  hedy: { x: 50, y: 86 },
+  grace: { x: 86, y: 72 },
+  vint: { x: 86, y: 30 },
+}
+
+/** Where each agent gathers when active — a ring around the meeting table. */
+export const MEETING_POS: Record<AgentId, Point> = {
+  leslie: { x: 50, y: 34 }, // head of the table
+  alan: { x: 33, y: 45 },
+  edgar: { x: 33, y: 63 },
+  hedy: { x: 50, y: 72 },
+  grace: { x: 67, y: 63 },
+  vint: { x: 67, y: 45 },
+}
+
+/** Center of the meeting table (for the static table marker). */
+export const TABLE_CENTER: Point = { x: 50, y: 54 }
+
+/**
+ * Derive an agent's floor position from its current action.
+ * Idle or finished → at their desk. Anything else → gathered at the table.
+ */
+export function agentFloorPosition(id: AgentId, action: AgentAction): Point {
+  const gathered = action !== 'idle' && action !== 'done'
+  return gathered ? MEETING_POS[id] : HOME_POS[id]
+}
