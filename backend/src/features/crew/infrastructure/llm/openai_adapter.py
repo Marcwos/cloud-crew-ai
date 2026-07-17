@@ -35,11 +35,15 @@ class OpenAIAdapter:
             for msg in request.messages
         )
 
+        # Newer OpenAI models (gpt-5.x, o-series) reject `max_tokens` and require
+        # `max_completion_tokens`. The Chat Completions API accepts the new name
+        # on current models, so we always send it. DeepSeek keeps `max_tokens`
+        # in its own adapter — its OpenAI-compatible endpoint predates the rename.
         completion = await self._client.chat.completions.create(
             model=request.model,
             messages=messages,
             temperature=request.temperature,
-            max_tokens=request.max_tokens,
+            max_completion_tokens=request.max_tokens,
         )
 
         text = completion.choices[0].message.content or ""
