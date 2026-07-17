@@ -81,6 +81,20 @@ class TestLangGraphGraph:
         expected = {"leslie", "alan", "edgar", "hedy", "grace", "vint"}
         assert expected.issubset(agents_with_events)
 
+    async def test_specialist_moving_events_include_leslies_assignment(self, deps):
+        session = await run_graph("API gateway modernization", deps)
+        specialists = {"alan", "edgar", "hedy", "grace", "vint"}
+        moving_events = {
+            event.agent: event
+            for event in session.events
+            if event.action == "moving" and event.agent in specialists
+        }
+
+        assert set(moving_events) == specialists
+        for agent, event in moving_events.items():
+            assert event.assignment == session.tasks[agent]
+            assert session.tasks[agent] in event.message
+
     async def test_run_graph_leslie_first_event(self, deps):
         """Leslie's triage should be the very first event."""
         session = await run_graph("Batch processing job", deps)

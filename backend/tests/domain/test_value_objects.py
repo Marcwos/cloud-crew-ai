@@ -85,6 +85,16 @@ class TestAgentEvent:
         assert e.agent == "alan"
         assert e.action == "analyzing"
 
+    def test_assignment_is_optional_and_preserved(self):
+        e = AgentEvent(
+            agent="alan",
+            action="moving",
+            status="ok",
+            message="Assignment: compare compute services",
+            assignment="Compare compute services for elasticity and cost.",
+        )
+        assert e.assignment == "Compare compute services for elasticity and cost."
+
     def test_all_valid_actions(self):
         for action in ("idle", "moving", "analyzing", "proposing", "reviewing", "done"):
             e = AgentEvent(agent="edgar", action=action, status="ok", message="msg")

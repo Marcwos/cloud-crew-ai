@@ -9,13 +9,27 @@ interface AgentSpriteProps {
   isLeader?: boolean
   /** Floor mode: hide the role line and tighten the message footprint */
   compact?: boolean
+  /** Temporary walk animation used until directional spritesheets are ready. */
+  isWalking?: boolean
+  /** Optional map interaction, currently used to open Leslie's mission dialogue. */
+  onActivate?: () => void
 }
 
-export function AgentSprite({ state, isLeader = false, compact = false }: AgentSpriteProps) {
+export function AgentSprite({
+  state,
+  isLeader = false,
+  compact = false,
+  isWalking = false,
+  onActivate,
+}: AgentSpriteProps) {
   const meta = AGENT_META[state.id]
   const badge = ACTION_BADGE[state.action]
 
-  const spriteSize = isLeader ? 'w-28 h-28' : 'w-20 h-20'
+  // Station mode uses small sprites so they sit inside the characters shown
+  // in the HUB artwork instead of covering the station signage.
+  const spriteSize = compact
+    ? isLeader ? 'w-16 h-16' : 'w-14 h-14'
+    : isLeader ? 'w-28 h-28' : 'w-20 h-20'
   const tooltipId = `tooltip-${state.id}`
   // "Active" = the agent is currently doing work (not resting at its desk).
   const isActive = state.action !== 'idle' && state.action !== 'done'
@@ -35,7 +49,7 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
 
       {/* Pixel-art avatar — animated sprite */}
       <div
-        role="img"
+        role={onActivate ? 'button' : 'img'}
         tabIndex={0}
         aria-label={`${meta.name} — ${meta.role}`}
         aria-describedby={tooltipId}
@@ -43,6 +57,7 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
           'pioneer-tooltip agent-avatar relative select-none',
           'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 rounded-md',
           spriteSize,
+          isWalking && 'is-walking',
           isActive && 'is-active'
         )}
         style={{
@@ -52,6 +67,13 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
         }}
         data-tooltip={meta.tooltip}
         title={meta.tooltip}
+        onClick={onActivate}
+        onKeyDown={(event) => {
+          if (onActivate && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            onActivate()
+          }
+        }}
       >
         <img
           src={AGENT_SPRITE[state.id]}
@@ -71,13 +93,8 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
         )}
       </div>
 
-      {/* Agent info */}
-      <div
-        className={cn(
-          'flex flex-col items-center gap-1 text-center',
-          compact && 'w-28'
-        )}
-      >
+      {/* Agent info (hidden in station mode; the HUB artwork has its own labels) */}
+      {!compact && <div className="flex flex-col items-center gap-1 text-center">
         {/* Name */}
         <span
           className={cn(
@@ -119,7 +136,7 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
             {state.message}
           </p>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

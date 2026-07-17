@@ -1,103 +1,105 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAgentMovement } from '../features/crew-office/application/useAgentMovement'
 import { useCrewSession } from '../features/crew-office/application/useCrewSession'
 import { createApiClient } from '../features/crew-office/infrastructure/apiClient'
 import { createSseClientFactory } from '../features/crew-office/infrastructure/sseClient'
+import { ChallengeDialog } from '../features/crew-office/ui/ChallengeDialog'
 import { Office } from '../features/crew-office/ui/Office'
-import { ChallengeInput } from '../features/crew-office/ui/ChallengeInput'
-import { PlanPanel } from '../features/crew-office/ui/PlanPanel'
+import { PlanDialog } from '../features/crew-office/ui/PlanDialog'
+import type { AgentEvent } from '../features/crew-office/domain/types'
 import { API_BASE_URL } from '../shared/config'
 
-export function App() {
-  // Stable dependency instances (only created once per mount)
-  const apiClient = useMemo(() => createApiClient(API_BASE_URL), [])
-  const sseClientFactory = useMemo(() => createSseClientFactory(), [])
+const apiClient = createApiClient(API_BASE_URL)
+const sseClientFactory = createSseClientFactory()
 
-  const { officeState, finalPlan, error, startSession } = useCrewSession({
+function bubbleText(message: string): string {
+  const compact = message.replace(/\s+/g, ' ').trim()
+  return compact.length > 92 ? `${compact.slice(0, 89)}…` : compact
+}
+
+/** The HUB is the main UI: click Leslie to give the crew a real mission. */
+export function App() {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [planDialogOpen, setPlanDialogOpen] = useState(false)
+  const presentedPlanSessionRef = useRef<string | null>(null)
+  const {
+    motions,
+    clearThoughts,
+    gatherAtMeeting,
+    moveToStation,
+    returnToMeeting,
+    setThought,
+  } = useAgentMovement()
+
+  const handleAgentEvent = useCallback((event: AgentEvent) => {
+    if (event.agent === 'leslie' && event.action === 'done') {
+      clearThoughts()
+    }
+    setThought(event.agent, bubbleText(event.assignment ?? event.message))
+
+    if (event.agent !== 'leslie' && event.action !== 'done') {
+      void moveToStation(event.agent)
+    }
+  }, [clearThoughts, moveToStation, setThought])
+
+  const { officeState, error, finalPlan, startSession } = useCrewSession({
     apiClient,
     sseClientFactory,
+    onAgentEvent: handleAgentEvent,
   })
 
+  const submitMission = useCallback((challenge: string) => {
+    presentedPlanSessionRef.current = null
+    setPlanDialogOpen(false)
+    gatherAtMeeting()
+    setThought('leslie', 'Analizando la misión…')
+    setDialogOpen(false)
+    void startSession(challenge)
+  }, [gatherAtMeeting, setThought, startSession])
+
+  useEffect(() => {
+    if (!officeState.isDone || !officeState.sessionId || !finalPlan) return
+    if (presentedPlanSessionRef.current === officeState.sessionId) return
+
+    presentedPlanSessionRef.current = officeState.sessionId
+    let cancelled = false
+
+    void (async () => {
+      clearThoughts()
+      setThought('leslie', 'Crew, volvamos a la plaza…')
+      await returnToMeeting()
+      if (cancelled) return
+      clearThoughts()
+      setThought('leslie', 'Plan final listo.')
+      setPlanDialogOpen(true)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clearThoughts, finalPlan, officeState.isDone, officeState.sessionId, returnToMeeting, setThought])
+
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-        <div className="flex items-center gap-3">
-          {/* Pixel logo */}
-          <div
-            className="w-8 h-8 rounded-sm flex items-center justify-center font-mono text-sm font-bold text-white"
-            style={{
-              background: 'linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)',
-              imageRendering: 'pixelated',
-            }}
-            aria-hidden
-          >
-            CC
-          </div>
-          <div>
-            <h1 className="font-mono text-sm font-bold text-slate-100 leading-none">
-              Cloud Crew AI
-            </h1>
-            <p className="font-mono text-xs text-slate-500 leading-none mt-0.5">
-              pixel office — v0.1
-            </p>
-          </div>
-        </div>
-
-        {/* Status pill */}
-        <div className="ml-auto flex items-center gap-2">
-          {officeState.isRunning && (
-            <span className="flex items-center gap-1.5 text-xs font-mono text-cyan-400 badge-analyzing">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />
-              crew active
-            </span>
-          )}
-          {officeState.isDone && (
-            <span className="flex items-center gap-1.5 text-xs font-mono text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              mission complete
-            </span>
-          )}
-          {!officeState.isRunning && !officeState.isDone && (
-            <span className="flex items-center gap-1.5 text-xs font-mono text-slate-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-600 inline-block" />
-              standby
-            </span>
-          )}
-        </div>
-      </header>
-
-      {/* ── Main content ─────────────────────────────────────────────── */}
-      <main className="flex-1 px-4 py-8 max-w-5xl mx-auto w-full flex flex-col gap-8">
-        {/* Error banner */}
-        {error && (
-          <div
-            role="alert"
-            className="rounded border border-red-800 bg-red-950/50 px-4 py-3 font-mono text-sm text-red-400"
-          >
-            <span className="font-bold">error:</span> {error}
-          </div>
-        )}
-
-        {/* Challenge input */}
-        <ChallengeInput
-          onSubmit={startSession}
-          isRunning={officeState.isRunning}
-          isDone={officeState.isDone}
-        />
-
-        {/* Office */}
-        <Office officeState={officeState} />
-
-        {/* Final plan */}
-        {finalPlan && <PlanPanel plan={finalPlan} />}
-      </main>
-
-      {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800 px-6 py-3 text-center">
-        <span className="font-mono text-xs text-slate-700">
-          cloud crew ai — built with react 19 + vite + tailwind 4
-        </span>
-      </footer>
-    </div>
+    <main className="island-background" aria-label="Cloud Crew AI Hub">
+      <Office
+        officeState={officeState}
+        motions={motions}
+        onAgentSelect={() => {
+          if (!officeState.isRunning) setDialogOpen(true)
+        }}
+      />
+      <ChallengeDialog
+        open={dialogOpen}
+        isRunning={officeState.isRunning}
+        error={error}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={submitMission}
+      />
+      <PlanDialog
+        open={planDialogOpen}
+        plan={finalPlan}
+        onClose={() => setPlanDialogOpen(false)}
+      />
+    </main>
   )
 }

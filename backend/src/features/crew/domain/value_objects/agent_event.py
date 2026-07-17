@@ -11,6 +11,9 @@ class AgentEvent(BaseModel, frozen=True):
     action: Literal["idle", "moving", "analyzing", "proposing", "reviewing", "done"]
     status: str
     message: str
+    # The concrete brief Leslie assigned to this specialist. Optional so
+    # lifecycle events that do not represent an assignment remain compatible.
+    assignment: str | None = None
 
     @field_validator("agent")
     @classmethod

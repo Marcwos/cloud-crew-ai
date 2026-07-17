@@ -148,7 +148,7 @@ class TestAPIContractB:
         assert len(leslie_done) >= 1
 
     async def test_event_fields_match_spec(self, client):
-        """Every event must have agent, action, status, message."""
+        """Every event must expose its UI-facing lifecycle fields."""
         resp = await client.post(
             "/api/sessions",
             json={"challenge": "API modernisation"},
@@ -161,6 +161,7 @@ class TestAPIContractB:
             assert "action" in event
             assert "status" in event
             assert "message" in event
+            assert "assignment" in event
             assert event["action"] in {
                 "idle", "moving", "analyzing", "proposing", "reviewing", "done"
             }

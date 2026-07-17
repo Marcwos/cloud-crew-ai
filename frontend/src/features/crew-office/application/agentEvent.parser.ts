@@ -55,6 +55,7 @@ export function parseAgentEvent(data: string): AgentEvent {
   // Coerce optional string fields with safe fallback
   const status = typeof obj['status'] === 'string' ? obj['status'] : ''
   const message = typeof obj['message'] === 'string' ? obj['message'] : ''
+  const assignment = typeof obj['assignment'] === 'string' ? obj['assignment'] : undefined
 
   // Return ONLY the known fields (no extra field contamination)
   return {
@@ -62,5 +63,6 @@ export function parseAgentEvent(data: string): AgentEvent {
     action: obj['action'],
     status,
     message,
+    assignment,
   }
 }

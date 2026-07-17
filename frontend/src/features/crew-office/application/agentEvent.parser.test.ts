@@ -18,6 +18,18 @@ describe('parseAgentEvent', () => {
     expect(event.message).toBe('Processing data')
   })
 
+  it('preserves an optional assignment from Leslie', () => {
+    const event = parseAgentEvent(JSON.stringify({
+      agent: 'alan',
+      action: 'moving',
+      status: 'ok',
+      message: 'Assignment: compare compute services',
+      assignment: 'Compare compute services for elasticity and cost.',
+    }))
+
+    expect(event.assignment).toBe('Compare compute services for elasticity and cost.')
+  })
+
   it('throws when the data is not valid JSON', () => {
     expect(() => parseAgentEvent('not json at all')).toThrow()
   })

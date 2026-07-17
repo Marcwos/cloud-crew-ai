@@ -21,6 +21,8 @@ export interface AgentEvent {
   action: AgentAction
   status: string
   message: string
+  /** Concrete task assigned by Leslie, present for specialist assignment events. */
+  assignment?: string
 }
 
 /** Per-agent view state inside the office */

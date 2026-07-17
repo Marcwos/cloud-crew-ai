@@ -89,8 +89,15 @@ async def _emit(
     agent: str,
     action: str,
     message: str,
+    assignment: str | None = None,
 ) -> AgentEvent:
-    event = AgentEvent(agent=agent, action=action, status="ok", message=message)  # type: ignore[arg-type]
+    event = AgentEvent(  # type: ignore[arg-type]
+        agent=agent,
+        action=action,
+        status="ok",
+        message=message,
+        assignment=assignment,
+    )
     await deps.events.publish(session_id, event)
     return event
 
@@ -300,8 +307,23 @@ def _make_parallel_specialists_node(deps: CrewSessionDeps):
         )
 
         async def run_specialist(agent_name: str, agent_cls: type) -> tuple[AgentEvent, AgentEvent, Proposal, AgentEvent]:
-            e_moving = await _emit(deps, session_id, agent_name, "moving", "Moving to workstation")
-            e_analyzing = await _emit(deps, session_id, agent_name, "analyzing", f"Analyzing {agent_name} domain")
+            assignment = state["tasks"].get(agent_name, f"Analyze the {agent_name} domain")
+            e_moving = await _emit(
+                deps,
+                session_id,
+                agent_name,
+                "moving",
+                f"Assignment: {assignment}",
+                assignment=assignment,
+            )
+            e_analyzing = await _emit(
+                deps,
+                session_id,
+                agent_name,
+                "analyzing",
+                f"Analyzing assignment: {assignment}",
+                assignment=assignment,
+            )
 
             agent = agent_cls(llm=deps.llm, knowledge=deps.knowledge)
             proposal = await agent.propose(temp_session)

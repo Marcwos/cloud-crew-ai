@@ -140,7 +140,8 @@ async def session_events_stream(
     """SSE stream of AgentEvents for a session.
 
     Each event is a JSON-encoded AgentEvent:
-    { "agent": "alan", "action": "analyzing", "status": "ok", "message": "..." }
+    { "agent": "alan", "action": "analyzing", "status": "ok", "message": "...",
+      "assignment": "..." }
 
     Stream ends after the terminal event (leslie, action=done).
     Returns 404 if session not found.

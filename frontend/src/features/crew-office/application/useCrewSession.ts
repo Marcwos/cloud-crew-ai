@@ -9,6 +9,8 @@ import type { SseClientFactory } from '../infrastructure/sseClient'
 export interface UseCrewSessionDeps {
   apiClient: ApiClient
   sseClientFactory: SseClientFactory
+  /** Called immediately for each validated SSE event, before visual consumers react to it. */
+  onAgentEvent?: (event: AgentEvent) => void
 }
 
 // ── Hook return type ───────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ function officeReducer(state: OfficeState, action: ReducerAction): OfficeState {
 export function useCrewSession({
   apiClient,
   sseClientFactory,
+  onAgentEvent,
 }: UseCrewSessionDeps): UseCrewSessionResult {
   const [officeState, dispatch] = useReducer(
     officeReducer,
@@ -107,6 +110,7 @@ export function useCrewSession({
         `/api/sessions/${sessionId}/events`,
         (event: AgentEvent) => {
           dispatch({ type: 'AGENT_EVENT', payload: event })
+          onAgentEvent?.(event)
         },
         () => {
           // onDone callback — leslie/done was received; fetch the full session
@@ -133,7 +137,7 @@ export function useCrewSession({
 
       sseCleanupRef.current = cleanup
     },
-    [apiClient, sseClientFactory]
+    [apiClient, onAgentEvent, sseClientFactory]
   )
 
   return { officeState, finalPlan, error, startSession }

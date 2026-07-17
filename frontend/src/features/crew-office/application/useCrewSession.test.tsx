@@ -158,6 +158,36 @@ describe('useCrewSession', () => {
     expect(result.current.officeState.agents['alan'].action).toBe('analyzing')
   })
 
+  it('forwards SSE events to the map animation subscriber', async () => {
+    let capturedOnEvent: ((event: AgentEvent) => void) | null = null
+    const onAgentEvent = vi.fn()
+    const mockSseFactory = makeMockSseFactory((_url, onEvent) => {
+      capturedOnEvent = onEvent
+    })
+
+    const { result } = renderHook(() =>
+      useCrewSession({
+        apiClient: makeMockApiClient(),
+        sseClientFactory: mockSseFactory,
+        onAgentEvent,
+      })
+    )
+
+    await act(async () => {
+      await result.current.startSession('test')
+    })
+
+    const event: AgentEvent = {
+      agent: 'alan',
+      action: 'moving',
+      status: 'ok',
+      message: 'Moving to workstation',
+    }
+    act(() => capturedOnEvent!(event))
+
+    expect(onAgentEvent).toHaveBeenCalledWith(event)
+  })
+
   it('fetches the session and sets finalPlan when leslie/done fires', async () => {
     let capturedOnEvent: ((event: AgentEvent) => void) | null = null
     let capturedOnDone: (() => void) | null = null
