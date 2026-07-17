@@ -12,8 +12,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load backend/.env (LLM_PROVIDER, *_API_KEY, ...) into the environment before
+# config is read. Without this, dropping a .env in place is a silent no-op and
+# the app quietly stays in fake mode. Real env vars already set win over .env.
+load_dotenv()
 
 from src.features.crew.interface.routes import router
 from src.shared.deps_factory import build_deps
