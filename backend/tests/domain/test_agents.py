@@ -527,3 +527,62 @@ class TestSpecialistRePropose:
         assert "Grace's cost challenge" in revised.rationale
         # Not the cross-review template either (no REVIEW/REVIEWER content).
         assert "REVIEWER" not in revised.rationale
+
+
+class TestParseFallbackLogging:
+    """Silent parse fallbacks become loud — logged at WARNING — so a real model
+    that ignores the SERVICES:/RATIONALE: format is visible at runtime instead
+    of quietly producing a plausible-but-wrong plan on stage.
+    """
+
+    async def test_specialist_logs_warning_when_services_fall_back(
+        self, knowledge, base_session, caplog
+    ):
+        import logging
+
+        class NoServicesLLM:
+            async def complete(self, request: LLMRequest) -> LLMResponse:
+                return LLMResponse(text="RATIONALE: could not determine services", model="m")
+
+        agent = AlanAgent(llm=NoServicesLLM(), knowledge=knowledge)
+        with caplog.at_level(logging.WARNING):
+            await agent.propose(base_session)
+
+        assert "fallback" in caplog.text.lower()
+        assert "alan" in caplog.text.lower()
+
+    async def test_specialist_does_not_warn_on_clean_parse(
+        self, fake_llm, knowledge, base_session, caplog
+    ):
+        import logging
+
+        agent = AlanAgent(llm=fake_llm, knowledge=knowledge)
+        with caplog.at_level(logging.WARNING):
+            await agent.propose(base_session)
+
+        # The happy path must stay silent — no fallback noise for good output.
+        assert "fallback" not in caplog.text.lower()
+
+    async def test_leslie_logs_warning_when_final_plan_services_fall_back(
+        self, knowledge, caplog
+    ):
+        import logging
+
+        class NoServicesConsolidateLLM:
+            async def complete(self, request: LLMRequest) -> LLMResponse:
+                return LLMResponse(text="SUMMARY: a plan\nDIAGRAM_HINT: flow", model="m")
+
+        leslie = LeslieAgent(llm=NoServicesConsolidateLLM(), knowledge=knowledge)
+        proposals = [
+            Proposal(
+                agent="alan",
+                services=["AWS Lambda"],
+                rationale="serverless",
+                alternatives_rejected=["Amazon EC2: too heavy"],
+                trade_offs="cost",
+            )
+        ]
+        with caplog.at_level(logging.WARNING):
+            await leslie.consolidate(proposals, [])
+
+        assert "fallback" in caplog.text.lower()
