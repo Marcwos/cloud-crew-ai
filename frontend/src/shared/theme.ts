@@ -130,12 +130,12 @@ export interface Point {
 
 /** Where each agent sits when idle — desks around the room perimeter. */
 export const HOME_POS: Record<AgentId, Point> = {
-  leslie: { x: 50, y: 16 }, // head of the room
-  alan: { x: 14, y: 30 },
-  edgar: { x: 14, y: 72 },
-  hedy: { x: 50, y: 86 },
-  grace: { x: 86, y: 72 },
-  vint: { x: 86, y: 30 },
+  leslie: { x: 50, y: 17 }, // head of the room
+  alan: { x: 18, y: 32 },
+  edgar: { x: 18, y: 72 },
+  hedy: { x: 50, y: 84 },
+  grace: { x: 82, y: 72 },
+  vint: { x: 82, y: 32 },
 }
 
 /** Where each agent gathers when active — a ring around the meeting table. */

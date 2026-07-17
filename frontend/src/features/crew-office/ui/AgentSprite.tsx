@@ -1,5 +1,6 @@
 import { cn } from '../../../shared/cn'
 import { AGENT_META, ACTION_BADGE } from '../../../shared/theme'
+import { AGENT_SPRITE } from '../../../assets/agents'
 import type { AgentState } from '../domain/types'
 
 interface AgentSpriteProps {
@@ -14,9 +15,10 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
   const meta = AGENT_META[state.id]
   const badge = ACTION_BADGE[state.action]
 
-  const spriteSize = isLeader ? 'w-16 h-16' : 'w-12 h-12'
-  const initialsSize = isLeader ? 'text-2xl' : 'text-lg'
+  const spriteSize = isLeader ? 'w-28 h-28' : 'w-20 h-20'
   const tooltipId = `tooltip-${state.id}`
+  // "Active" = the agent is currently doing work (not resting at its desk).
+  const isActive = state.action !== 'idle' && state.action !== 'done'
 
   return (
     <div
@@ -31,48 +33,38 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
         {meta.tooltip}
       </span>
 
-      {/* Pixel-art avatar square */}
+      {/* Pixel-art avatar — animated sprite */}
       <div
         role="img"
         tabIndex={0}
         aria-label={`${meta.name} — ${meta.role}`}
         aria-describedby={tooltipId}
         className={cn(
-          'pioneer-tooltip pixel-sprite relative flex items-center justify-center',
-          'rounded-sm border-2 font-mono font-bold select-none',
-          'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-slate-900',
+          'pioneer-tooltip agent-avatar relative select-none',
+          'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 rounded-md',
           spriteSize,
-          'transition-all duration-200'
+          isActive && 'is-active'
         )}
         style={{
-          backgroundColor: `${meta.color}22`,
-          borderColor: meta.color,
-          color: meta.color,
-          boxShadow: state.action !== 'idle'
-            ? `0 0 12px ${meta.color}55, inset 0 0 8px ${meta.color}22`
-            : 'none',
+          // Colored aura only while the agent is working.
+          filter: isActive ? `drop-shadow(0 0 7px ${meta.color}aa)` : undefined,
+          ['--ring-color' as string]: meta.color,
         }}
         data-tooltip={meta.tooltip}
         title={meta.tooltip}
       >
-        {/* Pixel scanlines overlay */}
-        <span
-          className={cn('absolute inset-0 rounded-sm opacity-20')}
-          style={{
-            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.3) 3px, rgba(0,0,0,0.3) 4px)',
-          }}
+        <img
+          src={AGENT_SPRITE[state.id]}
+          alt=""
           aria-hidden
+          draggable={false}
+          className="pixel-sprite w-full h-full object-contain"
         />
-
-        {/* Initials */}
-        <span className={cn(initialsSize, 'relative z-10 leading-none')} aria-hidden>
-          {meta.name.slice(0, 2).toUpperCase()}
-        </span>
 
         {/* Status indicator dot */}
         {state.action !== 'idle' && (
           <span
-            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border border-slate-900"
+            className="absolute top-0 right-0 w-2.5 h-2.5 rounded-full border border-slate-900"
             style={{ backgroundColor: meta.color }}
             aria-hidden
           />
@@ -80,7 +72,12 @@ export function AgentSprite({ state, isLeader = false, compact = false }: AgentS
       </div>
 
       {/* Agent info */}
-      <div className="flex flex-col items-center gap-1 text-center">
+      <div
+        className={cn(
+          'flex flex-col items-center gap-1 text-center',
+          compact && 'w-28'
+        )}
+      >
         {/* Name */}
         <span
           className={cn(
