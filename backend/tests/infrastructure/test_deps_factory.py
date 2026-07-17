@@ -52,8 +52,12 @@ class TestBuildDeps:
                 importlib.reload(factory_mod)
 
                 from src.features.crew.infrastructure.llm.openai_adapter import OpenAIAdapter
+                from src.features.crew.infrastructure.llm.resilient_llm_provider import ResilientLLMProvider
                 deps = factory_mod.build_deps()
-                assert isinstance(deps.llm, OpenAIAdapter)
+                # Real providers are wrapped for timeout + retry; the configured
+                # adapter is the inner provider.
+                assert isinstance(deps.llm, ResilientLLMProvider)
+                assert isinstance(deps.llm._inner, OpenAIAdapter)
 
     def test_build_deps_fake_when_no_provider_set(self):
         """Completely absent LLM_PROVIDER env var defaults to fake."""
