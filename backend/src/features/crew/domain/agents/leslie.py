@@ -6,6 +6,8 @@ she produces Constraints+Tasks (triage) and FinalPlan (consolidation).
 """
 from __future__ import annotations
 
+import logging
+
 from src.features.crew.domain.entities.final_plan import FinalPlan
 from src.features.crew.domain.entities.proposal import Proposal
 from src.features.crew.domain.entities.review import Review
@@ -18,6 +20,8 @@ from src.features.crew.domain.agents._parsers import (
     parse_list_section,
     parse_kv_section,
 )
+
+logger = logging.getLogger(__name__)
 
 _VALID_CONSTRAINT_KINDS = {"cost", "security", "latency", "scale", "compliance"}
 
@@ -186,8 +190,16 @@ class LeslieAgent:
         # invented service the LLM hallucinated cannot reach the client.
         services = [s for s in raw_services if s and s in allowed]
         if not services:
-            # Fall back to a grounded service when parsing/filtering leaves nothing.
+            # Fall back to a grounded service when parsing/filtering leaves
+            # nothing — loudly: an empty SERVICES from consolidate means Leslie's
+            # output broke format, and a one-service plan on stage is the exact
+            # silent failure this warning exists to surface.
             services = [sorted(allowed)[0]] if allowed else ["AWS Lambda"]
+            logger.warning(
+                "Parse fallback for leslie: no grounded SERVICES in consolidate "
+                "output; final plan degraded to %r.",
+                services,
+            )
 
         justification = parse_kv_section(text, "JUSTIFICATION")
         # Strip justification keys for any ungrounded service.

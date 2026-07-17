@@ -9,6 +9,7 @@ Each specialist:
 """
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 
 from src.features.crew.domain.entities.crew_session import CrewSession
@@ -22,6 +23,8 @@ from src.features.crew.domain.agents._parsers import (
     parse_multiline_section,
     parse_single_line_section,
 )
+
+logger = logging.getLogger(__name__)
 
 # Marks a proposal call as a revision after peer review. Appended to the
 # specialist's own `system_prompt` (never replacing it — the persona stays
@@ -99,12 +102,20 @@ class BaseSpecialistAgent(ABC):
         # Grounding rule: filter to only services in the curated catalog
         grounded_services = [s for s in raw_services if s in allowed_names]
         if not grounded_services:
-            # Fall back to first allowed service if parsing fails
+            # Fall back to an arbitrary allowed service — but say so loudly: no
+            # grounded SERVICES parsed means the model ignored the format, and a
+            # silent fallback would ship a plausible-but-wrong proposal.
             grounded_services = [next(iter(allowed_names))]
+            logger.warning(
+                "Parse fallback for %s: no grounded SERVICES in LLM output; "
+                "substituting %r. The model likely broke the expected format.",
+                self.agent_name, grounded_services[0],
+            )
 
         rationale = parse_single_line_section(text, "RATIONALE")
         if not rationale:
             rationale = "Recommended based on available services and challenge requirements"
+            logger.warning("Parse fallback for %s: RATIONALE missing; using default text.", self.agent_name)
 
         alternatives = parse_multiline_section(text, "ALTERNATIVES_REJECTED")
         if not alternatives:
@@ -112,10 +123,12 @@ class BaseSpecialistAgent(ABC):
             other_services = [s for s in allowed_names if s not in grounded_services]
             fallback = other_services[0] if other_services else "Manual provisioning"
             alternatives = [f"{fallback}: not selected for this workload"]
+            logger.warning("Parse fallback for %s: ALTERNATIVES_REJECTED missing; synthesizing one.", self.agent_name)
 
         trade_offs = parse_single_line_section(text, "TRADE_OFFS")
         if not trade_offs:
             trade_offs = "Standard trade-offs apply for this service selection"
+            logger.warning("Parse fallback for %s: TRADE_OFFS missing; using default text.", self.agent_name)
 
         return Proposal(
             agent=self.agent_name,
