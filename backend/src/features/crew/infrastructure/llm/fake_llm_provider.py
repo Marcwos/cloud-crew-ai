@@ -104,22 +104,61 @@ _REVIEW_TEMPLATE = (
     "TRADE_OFF: Lambda flexibility vs ECS predictable pricing for constant load\n"
 )
 
+# Re-proposal canned responses, keyed by the specialist being re-proposed to.
+# Only "alan" is defined: it is the only target the canned _REVIEW_TEMPLATE
+# ever names (grace -> alan), so it is the only re-proposal fake mode can
+# deterministically trigger. Any other target falls back to the specialist's
+# ORIGINAL canned response via .get(name, _CANNED_RESPONSES[name]) below — an
+# inert no-op replacement, never a KeyError.
+_RE_PROPOSAL_RESPONSES: dict[str, str] = {
+    "alan": (
+        "PROPOSAL for alan:\n"
+        "SERVICES: Amazon ECS, AWS Fargate, Amazon API Gateway\n"
+        "RATIONALE: Grace's cost challenge holds for sustained traffic — provisioned "
+        "concurrency erases Lambda's zero-idle advantage. ECS on Fargate gives predictable "
+        "per-task pricing with no cold starts; API Gateway still fronts the service.\n"
+        "ALTERNATIVES_REJECTED:\n"
+        "- AWS Lambda: Cold-start mitigation via provisioned concurrency erodes the cost edge at sustained load\n"
+        "- Amazon EC2: Fixed cost and manual scaling; Fargate removes instance management\n"
+        "TRADE_OFFS: Higher baseline cost than scale-to-zero, in exchange for predictable latency and spend\n"
+    ),
+}
+
+_SPECIALISTS = ("alan", "edgar", "hedy", "grace", "vint")
+
 
 def _pick_canned_response(request: LLMRequest) -> str:
-    """Select a canned response based on keywords in the system prompt."""
+    """Select a canned response based ONLY on `request.system`.
+
+    `request.messages` (user-supplied text) MUST NOT participate in dispatch —
+    letting user input steer control flow lets a challenge like "build a code
+    review tool" hijack any agent's canned response (R10). Order is
+    specific-to-general so structural phrases win over incidental keyword
+    overlap (R11, R13).
+    """
     system_lower = request.system.lower()
-    messages_text = " ".join(m.content.lower() for m in request.messages)
 
-    if "triage" in system_lower or "triage" in messages_text:
-        return _CANNED_RESPONSES["leslie_triage"]
-    if "consolidat" in system_lower or "consolidat" in messages_text:
-        return _CANNED_RESPONSES["leslie_consolidate"]
-    if "review" in system_lower or "review" in messages_text:
+    if "revising your earlier proposal" in system_lower:
+        # Re-proposal: check BEFORE the generic specialist-name loop so a
+        # prompt mentioning the target's name doesn't fall through to its
+        # original proposal (R13).
+        for name in _SPECIALISTS:
+            if name in system_lower:
+                return _RE_PROPOSAL_RESPONSES.get(name, _CANNED_RESPONSES[name])
+    if "cross-reviewer" in system_lower:
         return _REVIEW_TEMPLATE
+    if "triage" in system_lower:
+        return _CANNED_RESPONSES["leslie_triage"]
+    if "final architecture plan" in system_lower:
+        # Consolidate: matched by a structural phrase, not "consolidat" or
+        # "review" — _CONSOLIDATE_SYSTEM contains "reviews" but not
+        # "consolidat", so a substring check on those words alone would fall
+        # into the review branch instead (R11).
+        return _CANNED_RESPONSES["leslie_consolidate"]
 
-    for agent_name in ("alan", "edgar", "hedy", "grace", "vint"):
-        if agent_name in system_lower or agent_name in messages_text:
-            return _CANNED_RESPONSES[agent_name]
+    for name in _SPECIALISTS:
+        if name in system_lower:
+            return _CANNED_RESPONSES[name]
 
     return "SERVICES: AWS Lambda\nRATIONALE: Default fallback response\nALTERNATIVES_REJECTED:\n- EC2: too heavy\nTRADE_OFFS: cost vs simplicity\n"
 
