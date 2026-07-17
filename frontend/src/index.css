@@ -172,6 +172,90 @@ body::before {
   }
 }
 
+/* ── 2D office floor ─────────────────────────────────────────── */
+.office-floor {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  min-height: 420px;
+  border-radius: 10px;
+  border: 2px solid var(--color-border);
+  overflow: hidden;
+  /* Pixel tile floor */
+  background-color: #131c30;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 32px),
+    radial-gradient(ellipse at center, rgba(139,92,246,0.06), transparent 70%);
+}
+
+/* Desk markers — where each agent sits when idle */
+.office-desk {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 92px;
+  height: 52px;
+  border-radius: 6px;
+  border: 1px dashed;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* Central meeting table */
+.meeting-table {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  height: 90px;
+  border-radius: 999px;
+  border: 2px solid rgba(139, 92, 246, 0.5);
+  background: radial-gradient(ellipse at center, rgba(139,92,246,0.14), rgba(30,41,59,0.5));
+  box-shadow: inset 0 0 24px rgba(139, 92, 246, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.meeting-table-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(196, 181, 253, 0.7);
+}
+
+/* Agents — absolute, walk between desk and table via left/top transition */
+.office-agent {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition:
+    left 1.1s var(--ease-out-expo),
+    top 1.1s var(--ease-out-expo);
+  will-change: left, top;
+}
+
+.office-session-id {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 0.6rem;
+  color: var(--color-text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .office-agent {
+    transition: none;
+  }
+}
+
 /* ── Station card ────────────────────────────────────────────── */
 .station-card {
   border-radius: 8px;

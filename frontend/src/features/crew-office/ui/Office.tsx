@@ -1,6 +1,11 @@
-import { cn } from '../../../shared/cn'
-import { AGENT_META, SPECIALIST_IDS } from '../../../shared/theme'
+import {
+  AGENT_META,
+  HOME_POS,
+  TABLE_CENTER,
+  agentFloorPosition,
+} from '../../../shared/theme'
 import { AgentSprite } from './AgentSprite'
+import { AGENT_IDS } from '../domain/types'
 import type { OfficeState } from '../domain/types'
 
 interface OfficeProps {
@@ -8,124 +13,81 @@ interface OfficeProps {
 }
 
 /**
- * The pixel-art office layout.
+ * The 2D office floor.
  *
- * Layout:
- *   ┌─────────────────────────────────────┐
- *   │       LESLIE  (top-center)          │  Leader desk
- *   ├──────┬──────┬──────┬──────┬────────┤
- *   │ ALAN │EDGAR │ HEDY │GRACE │  VINT  │  Specialist grid (2-3 cols)
- *   └──────┴──────┴──────┴──────┴────────┘
+ * Every agent is absolutely positioned. Its coordinates are DERIVED from its
+ * current action (desk when idle/done, table when active). A CSS transition on
+ * left/top interpolates the change, so the sprites *walk* — no game loop, no
+ * animation frame, the browser tweens for us.
  */
 export function Office({ officeState }: OfficeProps) {
-  const leslieState = officeState.agents['leslie']
-  const leslieMeta = AGENT_META['leslie']
-
   return (
     <section
       data-testid="office"
-      className="office-layout"
+      className="office-floor"
       aria-label="Cloud Crew AI Office"
     >
-      {/* ── Leader station (Leslie) ──────────────────────────────────── */}
-      <div className="flex justify-center">
-        <div
-          className={cn(
-            'station-card w-full max-w-sm',
-            'relative overflow-visible'
-          )}
-          style={{
-            borderColor: leslieMeta.color,
-            backgroundColor: `${leslieMeta.color}11`,
-          }}
-        >
-          {/* Leader badge */}
+      {/* ── Desk markers (static, one per home position) ─────────────── */}
+      {AGENT_IDS.map((id) => {
+        const meta = AGENT_META[id]
+        const home = HOME_POS[id]
+        return (
           <div
-            className="station-header"
+            key={`desk-${id}`}
+            className="office-desk"
             style={{
-              borderBottomColor: `${leslieMeta.color}44`,
-              color: leslieMeta.color,
-              backgroundColor: `${leslieMeta.color}18`,
+              left: `${home.x}%`,
+              top: `${home.y}%`,
+              borderColor: `${meta.color}66`,
+              backgroundColor: `${meta.color}0d`,
             }}
+            aria-hidden
           >
-            <span className="opacity-60">◆</span>
-            {' '}ORCHESTRATOR DESK
+            <span style={{ color: `${meta.color}aa` }}>{meta.role}</span>
           </div>
+        )
+      })}
 
-          <div className="station-body flex justify-center py-6">
-            <AgentSprite state={leslieState} isLeader />
-          </div>
-
-          {/* Status line */}
-          {officeState.isRunning && !officeState.isDone && (
-            <div className="px-4 pb-4 text-center">
-              <span className="text-xs font-mono text-violet-400 badge-analyzing inline-block">
-                coordinating crew…
-              </span>
-            </div>
-          )}
-          {officeState.isDone && (
-            <div className="px-4 pb-4 text-center">
-              <span className="text-xs font-mono text-emerald-400">
-                ✓ mission complete
-              </span>
-            </div>
-          )}
-        </div>
+      {/* ── Meeting table (static, center) ───────────────────────────── */}
+      <div
+        className="meeting-table"
+        style={{ left: `${TABLE_CENTER.x}%`, top: `${TABLE_CENTER.y}%` }}
+        aria-hidden
+      >
+        <span className="meeting-table-label">
+          {officeState.isDone
+            ? '✓ complete'
+            : officeState.isRunning
+              ? 'meeting'
+              : 'crew table'}
+        </span>
       </div>
 
-      {/* ── Specialist stations grid ─────────────────────────────────── */}
-      <div className="office-specialists-grid">
-        {SPECIALIST_IDS.map((agentId) => {
-          const agentState = officeState.agents[agentId]
-          const meta = AGENT_META[agentId]
-
-          return (
-            <div
-              key={agentId}
-              className="station-card"
-              style={{
-                borderColor: meta.color,
-                backgroundColor: `${meta.color}0d`,
-              }}
-            >
-              {/* Station header */}
-              <div
-                className="station-header"
-                style={{
-                  borderBottomColor: `${meta.color}33`,
-                  color: meta.color,
-                  backgroundColor: `${meta.color}18`,
-                }}
-              >
-                {meta.role.toUpperCase()}
-              </div>
-
-              {/* Agent sprite */}
-              <div className="station-body flex justify-center py-5">
-                <AgentSprite state={agentState} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {/* ── Agents (absolute, walk between desk and table) ───────────── */}
+      {AGENT_IDS.map((id) => {
+        const agent = officeState.agents[id]
+        const pos = agentFloorPosition(id, agent.action)
+        const walking = agent.action !== 'idle'
+        return (
+          <div
+            key={id}
+            className="office-agent"
+            style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: walking ? 20 : 10 }}
+          >
+            <AgentSprite state={agent} isLeader={id === 'leslie'} compact />
+          </div>
+        )
+      })}
 
       {/* ── Session ID indicator ─────────────────────────────────────── */}
       {officeState.sessionId && (
-        <div className="flex justify-center">
-          <span className="font-mono text-xs text-slate-600">
-            session: {officeState.sessionId}
-          </span>
-        </div>
+        <span className="office-session-id font-mono">
+          session: {officeState.sessionId}
+        </span>
       )}
 
-      {/* ── Live region — announces agent status changes to AT ───────── */}
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="false"
-        className="sr-only"
-      >
+      {/* ── Live region — announces status changes to AT ─────────────── */}
+      <div role="status" aria-live="polite" aria-atomic="false" className="sr-only">
         {officeState.isRunning && !officeState.isDone && 'Crew is active and working on your challenge.'}
         {officeState.isDone && 'Mission complete. The crew has finished.'}
       </div>

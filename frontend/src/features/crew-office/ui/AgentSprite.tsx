@@ -6,9 +6,11 @@ interface AgentSpriteProps {
   state: AgentState
   /** Show larger card (used for leslie's leader position) */
   isLeader?: boolean
+  /** Floor mode: hide the role line and tighten the message footprint */
+  compact?: boolean
 }
 
-export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
+export function AgentSprite({ state, isLeader = false, compact = false }: AgentSpriteProps) {
   const meta = AGENT_META[state.id]
   const badge = ACTION_BADGE[state.action]
 
@@ -91,9 +93,11 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
         </span>
 
         {/* Role */}
-        <span className="text-xs text-slate-500 font-mono uppercase tracking-widest">
-          {meta.role}
-        </span>
+        {!compact && (
+          <span className="text-xs text-slate-500 font-mono uppercase tracking-widest">
+            {meta.role}
+          </span>
+        )}
 
         {/* Action badge */}
         <span
@@ -109,7 +113,12 @@ export function AgentSprite({ state, isLeader = false }: AgentSpriteProps) {
 
         {/* Last message (if any) */}
         {state.message && (
-          <p className="text-xs text-slate-400 max-w-[120px] text-center leading-tight mt-1 line-clamp-2">
+          <p
+            className={cn(
+              'text-xs text-slate-400 text-center leading-tight mt-1',
+              compact ? 'max-w-[110px] line-clamp-1' : 'max-w-[120px] line-clamp-2'
+            )}
+          >
             {state.message}
           </p>
         )}
