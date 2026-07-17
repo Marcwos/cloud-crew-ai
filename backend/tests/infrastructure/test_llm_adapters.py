@@ -140,9 +140,10 @@ class TestOpenAIAdapter:
             assert len(system_messages) == 1
             assert system_messages[0]["content"] == "You are an expert"
 
-    async def test_complete_uses_max_completion_tokens_not_max_tokens(self):
-        """Newer OpenAI models (gpt-5.x, o-series) reject `max_tokens` with a 400
-        and require `max_completion_tokens`. Regression guard for that fix."""
+    async def test_complete_uses_max_completion_tokens_and_omits_temperature(self):
+        """Newer OpenAI models (gpt-5.x, o-series) reject `max_tokens` (require
+        `max_completion_tokens`) and a custom `temperature` (only default 1
+        allowed). Regression guard: send the new token param, omit temperature."""
         with patch("src.features.crew.infrastructure.llm.openai_adapter.openai") as mock_sdk:
             mock_client = MagicMock()
             mock_sdk.AsyncOpenAI.return_value = mock_client
@@ -160,6 +161,7 @@ class TestOpenAIAdapter:
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
             assert call_kwargs["max_completion_tokens"] == 256
             assert "max_tokens" not in call_kwargs
+            assert "temperature" not in call_kwargs
 
 
 class TestDeepSeekAdapter:

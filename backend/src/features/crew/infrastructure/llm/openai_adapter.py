@@ -35,14 +35,17 @@ class OpenAIAdapter:
             for msg in request.messages
         )
 
-        # Newer OpenAI models (gpt-5.x, o-series) reject `max_tokens` and require
-        # `max_completion_tokens`. The Chat Completions API accepts the new name
-        # on current models, so we always send it. DeepSeek keeps `max_tokens`
-        # in its own adapter — its OpenAI-compatible endpoint predates the rename.
+        # Newer OpenAI models (gpt-5.x, o-series) reject two things older models
+        # accepted:
+        #   - `max_tokens` -> they require `max_completion_tokens`.
+        #   - a custom `temperature` -> they only allow the default (1).
+        # So we send the new token param and omit temperature entirely, letting
+        # each model use its own default. This works across old and new models,
+        # and the crew never relies on a specific temperature anyway. DeepSeek
+        # keeps the older shape in its own adapter.
         completion = await self._client.chat.completions.create(
             model=request.model,
             messages=messages,
-            temperature=request.temperature,
             max_completion_tokens=request.max_tokens,
         )
 
