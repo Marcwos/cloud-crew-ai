@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 
 from src.features.crew.domain.entities.crew_session import CrewSession
 from src.features.crew.domain.entities.proposal import Proposal
+from src.features.crew.domain.entities.review import Review
 from src.features.crew.domain.ports.llm_provider import LLMProvider, LLMRequest, LLMMessage
 from src.features.crew.domain.ports.knowledge_source import KnowledgeSource
 from src.features.crew.domain.value_objects.service_fact import ServiceFact
@@ -20,6 +21,17 @@ from src.features.crew.domain.agents._parsers import (
     parse_list_section,
     parse_multiline_section,
     parse_single_line_section,
+)
+
+# Marks a proposal call as a revision after peer review. Appended to the
+# specialist's own `system_prompt` (never replacing it — the persona stays
+# intact) so `FakeLLMProvider._pick_canned_response` can dispatch it to a
+# re-proposal-specific canned response instead of colliding with the
+# specialist's original-proposal branch (design §5.6, R13).
+_RE_PROPOSE_SUFFIX = (
+    " You are revising your earlier proposal in response to a peer review. "
+    "Weigh the challenge honestly: change your recommendation if it is right, "
+    "defend it if it is wrong."
 )
 
 
@@ -129,4 +141,80 @@ class BaseSpecialistAgent(ABC):
             ],
         )
         response = await self._llm.complete(request)
+        return self._parse_proposal(response.text, allowed_names)
+
+    def _build_re_propose_message(
+        self,
+        session: CrewSession,
+        facts: list[ServiceFact],
+        original: Proposal,
+        review: Review,
+        contested_service: str,
+    ) -> str:
+        facts_text = "\n".join(f"- {f.name}: {f.when_to_use}" for f in facts)
+        original_services = ", ".join(original.services)
+        original_rejected = "\n".join(f"- {a}" for a in original.alternatives_rejected)
+        return (
+            f"Challenge: {session.challenge}\n\n"
+            f"Your earlier proposal:\n"
+            f"SERVICES: {original_services}\n"
+            f"RATIONALE: {original.rationale}\n"
+            f"ALTERNATIVES_REJECTED:\n{original_rejected}\n\n"
+            f"Peer review from {review.reviewer}:\n"
+            f"CHALLENGE: {review.challenge}\n"
+            f"TRADE_OFF: {review.trade_off}\n\n"
+            f"The reviewer defends {contested_service}, which you previously rejected. "
+            f"Reconsider it honestly.\n\n"
+            f"Available {self.domain} services (use ONLY these):\n{facts_text}\n\n"
+            f"Respond in the exact format:\n"
+            f"SERVICES: <comma-separated list from the above only>\n"
+            f"RATIONALE: <clear justification — why these services, not others>\n"
+            f"ALTERNATIVES_REJECTED:\n- <service>: <reason rejected>\n"
+            f"TRADE_OFFS: <honest trade-offs of your recommendation>\n"
+        )
+
+    async def re_propose(
+        self,
+        session: CrewSession,
+        original: Proposal,
+        review: Review,
+        contested_service: str,
+    ) -> Proposal | None:
+        """Produce a revised Proposal after a peer review surfaces a strong
+        conflict, or `None` if the response has no grounded service — the
+        caller (the graph's `re_propose` node, WU5) then keeps `original`.
+
+        Reuses the SAME grounding funnel as `propose()`: `allowed_names`
+        comes from the identical `KnowledgeSource.services_for()` call, and
+        parsing goes through `_parse_proposal` unchanged. No grounding logic
+        is duplicated or bypassed (design §4).
+        """
+        facts = await self._knowledge.services_for(self.domain, session.challenge)
+        allowed_names = {f.name for f in facts}
+
+        request = LLMRequest(
+            model=self._model,
+            system=self.system_prompt + _RE_PROPOSE_SUFFIX,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content=self._build_re_propose_message(
+                        session, facts, original, review, contested_service
+                    ),
+                )
+            ],
+            max_tokens=600,
+        )
+        response = await self._llm.complete(request)
+
+        # Pre-check BEFORE `_parse_proposal`: its empty-input fallback
+        # fabricates `next(iter(allowed_names))` — non-deterministic `set`
+        # iteration order (design §4, D10). Unlike `propose()`, delivering a
+        # revision is optional, so an ungrounded response means "no
+        # revision", never a fabricated one.
+        raw_services = parse_list_section(response.text, "SERVICES")
+        grounded = [s for s in raw_services if s in allowed_names]
+        if not grounded:
+            return None
+
         return self._parse_proposal(response.text, allowed_names)
