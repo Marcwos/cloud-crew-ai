@@ -127,6 +127,44 @@ _RE_PROPOSAL_RESPONSES: dict[str, str] = {
 _SPECIALISTS = ("alan", "edgar", "hedy", "grace", "vint")
 
 
+def _dynamic_consolidate_response(request: LLMRequest) -> str:
+    """Build the consolidate response from the REAL proposals in the prompt.
+
+    NOT the WU1 bug: WU1 banned `request.messages` from deciding WHICH canned
+    branch `_pick_canned_response` picks (that must stay system-only). This
+    runs strictly AFTER the system prompt has already selected the consolidate
+    branch — it only POPULATES that branch's content from the proposals text,
+    exactly what a real LLM would do with the same prompt. Same proposals in
+    -> same response out (deterministic).
+    """
+    services: list[str] = []
+    for message in request.messages:
+        for line in message.content.splitlines():
+            line = line.strip()
+            if line.startswith("Services:"):
+                for service in line[len("Services:"):].split(","):
+                    service = service.strip()
+                    if service and service not in services:
+                        services.append(service)
+
+    if not services:
+        return _CANNED_RESPONSES["leslie_consolidate"]
+
+    services_line = ", ".join(services)
+    justification = "\n".join(
+        f"- {service}: Recommended by the specialists' reviewed proposals"
+        for service in services
+    )
+    return (
+        "SUMMARY: Integrated architecture consolidated from the specialists' "
+        "reviewed proposals.\n"
+        f"SERVICES: {services_line}\n"
+        "JUSTIFICATION:\n"
+        f"{justification}\n"
+        "DIAGRAM_HINT: Services composed per the specialists' final proposals\n"
+    )
+
+
 def _pick_canned_response(request: LLMRequest) -> str:
     """Select a canned response based ONLY on `request.system`.
 
@@ -154,7 +192,7 @@ def _pick_canned_response(request: LLMRequest) -> str:
         # "review" — _CONSOLIDATE_SYSTEM contains "reviews" but not
         # "consolidat", so a substring check on those words alone would fall
         # into the review branch instead (R11).
-        return _CANNED_RESPONSES["leslie_consolidate"]
+        return _dynamic_consolidate_response(request)
 
     for name in _SPECIALISTS:
         if name in system_lower:

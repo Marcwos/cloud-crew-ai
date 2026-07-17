@@ -63,7 +63,16 @@ def base_session() -> CrewSession:
 
 
 class TestConsolidateDispatch:
-    """R11 — consolidate requests must reach the consolidate canned response."""
+    """R11 — consolidate requests must reach the consolidate canned response.
+
+    Post fake-consolidate-polish, consolidate no longer returns the fixed
+    `_CANNED_RESPONSES["leslie_consolidate"]` constant verbatim — it builds a
+    response from the real proposals in `request.messages` (see
+    `TestConsolidateReflectsDebate` below). What this test still protects is
+    the WU1 principle itself: dispatch to the consolidate branch is decided
+    ONLY by `request.system`, and the returned text has consolidate's
+    SUMMARY/SERVICES/JUSTIFICATION/DIAGRAM_HINT shape, never the review shape.
+    """
 
     def test_consolidate_system_dispatches_to_consolidate_response(self):
         # `_CONSOLIDATE_SYSTEM` contains "reviews" but not "consolidat" — this is
@@ -85,8 +94,38 @@ class TestConsolidateDispatch:
 
         picked = _pick_canned_response(request)
 
-        assert picked == _CANNED_RESPONSES["leslie_consolidate"]
         assert picked != _REVIEW_TEMPLATE
+        assert picked.startswith("SUMMARY:")
+        assert "SERVICES:" in picked
+        assert "JUSTIFICATION:" in picked
+        assert "REVIEW:" not in picked
+        assert "REVIEWER:" not in picked
+
+    def test_user_text_mentioning_review_or_triage_does_not_hijack_consolidate(self):
+        """R10 corollary — even with 'review'/'triage' in the user text, a
+        consolidate `request.system` must still dispatch to the consolidate
+        shape, never the review or triage canned response.
+        """
+        request = LLMRequest(
+            model="test-model",
+            system=_CONSOLIDATE_SYSTEM,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content=(
+                        "Specialist proposals:\n[ALAN]\nServices: AWS Lambda\n\n"
+                        "Cross-reviews:\nThis is a triage review of the proposals.\n\n"
+                        "Produce the integrated final plan."
+                    ),
+                )
+            ],
+        )
+
+        picked = _pick_canned_response(request)
+
+        assert picked != _REVIEW_TEMPLATE
+        assert picked != _CANNED_RESPONSES["leslie_triage"]
+        assert picked.startswith("SUMMARY:")
 
 
 class TestUserChallengeDoesNotHijackDispatch:
@@ -160,6 +199,93 @@ class TestReProposalDispatch:
         assert "SERVICES: Amazon ECS" in picked
 
 
+class TestConsolidateReflectsDebate:
+    """`fake-consolidate-polish` — the consolidate response must be built from
+    the REAL (post-debate) proposals passed in `request.messages`, not a
+    static canned list. Dispatch itself still goes ONLY through
+    `request.system` (protected above); this class covers what the response
+    CONTAINS once that branch is picked.
+    """
+
+    def _consolidate_request(self, proposals_text: str) -> LLMRequest:
+        return LLMRequest(
+            model="test-model",
+            system=_CONSOLIDATE_SYSTEM,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"Specialist proposals:\n{proposals_text}\n\n"
+                        "Cross-reviews:\nNo reviews submitted.\n\n"
+                        "Produce the integrated final plan."
+                    ),
+                )
+            ],
+        )
+
+    def test_services_reflect_revised_proposal_not_canned_lambda(self):
+        proposals_text = (
+            "[ALAN]\n"
+            "Services: Amazon ECS, AWS Fargate\n"
+            "Rationale: Predictable pricing for sustained load.\n"
+            "Rejected: AWS Lambda\n"
+            "Trade-offs: Higher baseline cost.\n\n"
+            "[EDGAR]\n"
+            "Services: Amazon DynamoDB\n"
+            "Rationale: Single-digit ms latency.\n"
+            "Rejected: Amazon RDS\n"
+            "Trade-offs: Eventual consistency."
+        )
+
+        picked = _pick_canned_response(self._consolidate_request(proposals_text))
+
+        services_line = next(
+            line for line in picked.splitlines() if line.startswith("SERVICES:")
+        )
+        assert "Amazon ECS" in services_line
+        assert "AWS Fargate" in services_line
+        assert "Amazon DynamoDB" in services_line
+        assert "AWS Lambda" not in services_line
+
+    def test_dispatch_by_system_only_review_text_does_not_change_shape(self):
+        """Sanity companion to R10: a user text with 'review'/'triage' inside
+        the proposals block must not change which branch answers — the
+        response must still be consolidate-shaped and reflect the proposals.
+        """
+        proposals_text = "[ALAN]\nServices: Amazon ECS\nRationale: r\nRejected: x\nTrade-offs: t"
+        request = LLMRequest(
+            model="test-model",
+            system=_CONSOLIDATE_SYSTEM,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"Specialist proposals (triage review notes below):\n{proposals_text}\n\n"
+                        "Cross-reviews:\nNo reviews submitted.\n\n"
+                        "Produce the integrated final plan."
+                    ),
+                )
+            ],
+        )
+
+        picked = _pick_canned_response(request)
+
+        assert picked != _REVIEW_TEMPLATE
+        assert picked != _CANNED_RESPONSES["leslie_triage"]
+        services_line = next(
+            line for line in picked.splitlines() if line.startswith("SERVICES:")
+        )
+        assert "Amazon ECS" in services_line
+
+    def test_consolidate_response_is_deterministic_for_same_proposals(self):
+        proposals_text = "[ALAN]\nServices: Amazon ECS, AWS Fargate\nRationale: r\nRejected: x\nTrade-offs: t"
+
+        picked1 = _pick_canned_response(self._consolidate_request(proposals_text))
+        picked2 = _pick_canned_response(self._consolidate_request(proposals_text))
+
+        assert picked1 == picked2
+
+
 class TestConsolidateReflectsRealProposals:
     """R12 — LeslieAgent.consolidate() under FakeLLMProvider must reflect real proposals."""
 
@@ -183,3 +309,37 @@ class TestConsolidateReflectsRealProposals:
         assert "AWS Lambda" in final_plan.services
         assert "Amazon DynamoDB" in final_plan.services
         assert final_plan.services != ["AWS App Runner"]
+
+
+class TestConsolidateReflectsDebateEndToEnd:
+    """`fake-consolidate-polish` — end-to-end via `run_graph`: when the fake
+    provider's guaranteed conflict (grace -> alan, design §5.6) flips Alan's
+    proposal from Lambda to ECS/Fargate, the FinalPlan produced by the SAME
+    fake run must show the revised services, not the pre-debate original.
+    This exercises the full graph but only reads outcomes — no graph/domain
+    code is touched by this change.
+    """
+
+    async def test_final_plan_reflects_alans_revised_proposal(self):
+        from src.features.crew.application.use_cases.run_crew_session import (
+            CrewSessionDeps,
+        )
+        from src.features.crew.infrastructure.events.recording_publisher import (
+            RecordingEventPublisher,
+        )
+        from src.features.crew.infrastructure.orchestration.langgraph_graph import (
+            run_graph,
+        )
+
+        deps = CrewSessionDeps(
+            llm=FakeLLMProvider(),
+            knowledge=CuratedCatalogKnowledgeSource(),
+            repo=None,  # type: ignore[arg-type]
+            events=RecordingEventPublisher(),
+        )
+
+        session = await run_graph("E-commerce backend with high traffic", deps)
+
+        assert session.final_plan is not None
+        assert "Amazon ECS" in session.final_plan.services
+        assert "AWS Fargate" in session.final_plan.services
