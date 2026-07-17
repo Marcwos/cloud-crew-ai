@@ -315,13 +315,27 @@ def _make_parallel_specialists_node(deps: CrewSessionDeps):
         # Fan-out: run all 5 concurrently (still asyncio.gather, not Send —
         # the fan-out happens inside a single node, so LangGraph never sees
         # concurrent writes; design §6.2 explains why no reducer is needed).
+        # return_exceptions=True so one specialist's failure (a provider error
+        # that survived ResilientLLMProvider's retries) degrades to "that agent
+        # sat this round out" instead of taking the whole session down.
+        agent_names = list(_SPECIALIST_REGISTRY.keys())
         results = await asyncio.gather(
-            *[run_specialist(name, cls) for name, cls in _SPECIALIST_REGISTRY.items()]
+            *[run_specialist(name, cls) for name, cls in _SPECIALIST_REGISTRY.items()],
+            return_exceptions=True,
         )
 
         # Collect results in deterministic order (alan, edgar, hedy, grace, vint)
         proposals: list[Proposal] = []
-        for e_moving, e_analyzing, proposal, e_proposing in results:
+        for agent_name, result in zip(agent_names, results):
+            if isinstance(result, BaseException):
+                events.append(
+                    await _emit(
+                        deps, session_id, agent_name, "done",
+                        "Skipped — proposal unavailable after provider errors",
+                    )
+                )
+                continue
+            e_moving, e_analyzing, proposal, e_proposing = result
             events.append(e_moving)
             events.append(e_analyzing)
             proposals.append(proposal)

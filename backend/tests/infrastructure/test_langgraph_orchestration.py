@@ -107,6 +107,37 @@ class TestLangGraphGraph:
             assert len(proposal.services) >= 1
 
 
+class TestFanOutResilience:
+    """One failing specialist must not take the whole session down."""
+
+    async def test_one_failing_specialist_leaves_the_others_intact(self):
+        fake = FakeLLMProvider()
+
+        class OneAgentFailsLLM:
+            """Fails only vint's proposal call; everyone else uses the fake."""
+
+            async def complete(self, request: LLMRequest) -> LLMResponse:
+                # "You are Vint" is unique to vint's own call; triage says
+                # "You are Leslie" (it only lists vint=networking in passing).
+                if "you are vint" in request.system.lower():
+                    raise RuntimeError("simulated provider failure for vint")
+                return await fake.complete(request)
+
+        deps = CrewSessionDeps(
+            llm=OneAgentFailsLLM(),
+            knowledge=CuratedCatalogKnowledgeSource(),
+            repo=None,  # type: ignore[arg-type]
+            events=RecordingEventPublisher(),
+        )
+
+        session = await run_graph("Serverless document pipeline", deps)
+
+        # The run completes with the four survivors — not a crash, not zero.
+        agents = {p.agent for p in session.proposals}
+        assert agents == {"alan", "edgar", "hedy", "grace"}
+        assert session.final_plan is not None
+
+
 class TestDebateConflictPath:
     """R2/R4/R7 — the default `FakeLLMProvider` deterministically produces a
     strong conflict: `CrossReviewer` dispatches to `_REVIEW_TEMPLATE`

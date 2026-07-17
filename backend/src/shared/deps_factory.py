@@ -65,6 +65,7 @@ def _build_real_deps(session_id: str | None = None) -> CrewSessionDeps:
     session_id is required when using SSEEventPublisher so the queue is pre-registered.
     """
     from src.features.crew.infrastructure.llm.llm_factory import make_llm_provider
+    from src.features.crew.infrastructure.llm.resilient_llm_provider import ResilientLLMProvider
     from src.features.crew.infrastructure.events.sse_event_publisher import SSEEventPublisher
 
     provider_name = get_llm_provider_name()
@@ -73,7 +74,9 @@ def _build_real_deps(session_id: str | None = None) -> CrewSessionDeps:
         "region_name": os.environ.get("AWS_DEFAULT_REGION"),
     }
 
-    llm = make_llm_provider(provider_name, config)
+    # Wrap the real provider with timeout + retry so a transient API hiccup
+    # doesn't kill a live session. Fake mode skips this — no network to fail.
+    llm = ResilientLLMProvider(make_llm_provider(provider_name, config))
     sse_publisher = SSEEventPublisher()
 
     return CrewSessionDeps(
