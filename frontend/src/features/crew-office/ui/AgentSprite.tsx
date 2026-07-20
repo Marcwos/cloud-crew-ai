@@ -28,8 +28,8 @@ export function AgentSprite({
   // Station mode uses small sprites so they sit inside the characters shown
   // in the HUB artwork instead of covering the station signage.
   const spriteSize = compact
-    ? isLeader ? 'w-16 h-16' : 'w-14 h-14'
-    : isLeader ? 'w-28 h-28' : 'w-20 h-20'
+    ? isLeader ? 'w-24 h-24' : 'w-20 h-20'
+    : isLeader ? 'w-36 h-36' : 'w-28 h-28'
   const tooltipId = `tooltip-${state.id}`
   // "Active" = the agent is currently doing work (not resting at its desk).
   const isActive = state.action !== 'idle' && state.action !== 'done'
